@@ -151,7 +151,7 @@ namespace ecs
 		
 		// element/page/data access
 		inline constexpr reference operator[](std::size_t pos) {
-			return { reg->template get_resource<manager_type>()[pos], reg->template get_resource<storage_type>()[pos] }; 
+			return { reg->template get_resource<manager_type>()[pos], reg->template get_resource<storage_type>()[pos] };
 		}
 		inline constexpr const_reference operator[](std::size_t pos) const {
 			return { reg->template get_resource<manager_type>()[pos], reg->template get_resource<storage_type>()[pos] }; 
@@ -177,13 +177,13 @@ namespace ecs
 			return { reg->template get_resource<manager_type>()[pos], reg->template get_resource<storage_type>()[pos] }; 
 		}
 
-		constexpr T& get(handle_type ent) {
+		constexpr T& get_component(handle_type ent) {
 			auto pos = index_of(ent);
-			return { reg->template get_resource<manager_type>()[pos], reg->template get_resource<storage_type>()[pos] }; 
+			return reg->template get_resource<storage_type>()[pos];
 		}
-		constexpr const T& get(handle_type ent) const {
+		constexpr const T& get_component(handle_type ent) const {
 			auto pos = index_of(ent);
-			return { reg->template get_resource<manager_type>()[pos], reg->template get_resource<storage_type>()[pos] }; 
+			return reg->template get_resource<storage_type>()[pos]; 
 		}
 
 		constexpr reference front() {
@@ -234,7 +234,7 @@ namespace ecs
 
 		// modifiers
 		template<typename ... arg_Ts> requires (std::is_constructible_v<T, arg_Ts...>)
-		constexpr T& init(handle_type ent, arg_Ts&&... args) {
+		constexpr T& emplace(handle_type ent, arg_Ts&&... args) {
 			std::size_t key = handle_value_type{ ent };
 			
 			auto& indexer = reg->template get_resource<indexer_type>();
@@ -254,7 +254,7 @@ namespace ecs
 		}
 
 		template<typename ... arg_Ts> requires (std::is_constructible_v<T, arg_Ts...>)
-		T& get_or_init(handle_type ent, arg_Ts&& ... args)
+		T& get_or_emplace(handle_type ent, arg_Ts&& ... args)
 		{
 			std::size_t key = handle_value_type{ ent };
 

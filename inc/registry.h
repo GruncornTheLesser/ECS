@@ -1,9 +1,7 @@
 
 #pragma once
 #include "traits.h"
-#include "handle.h"
 #include "generator.h"
-#include "invoker.h"
 #include "pool.h"
 #include "view.h"
 /* 
@@ -98,13 +96,13 @@ namespace ecs {
 		}
 
 		template<traits::component_class T, typename ... arg_Ts> requires(traits::is_compatible_v<registry<Ts...>, T>)
-		inline T& try_init(traits::get_handle_t<traits::get_table_t<T>> ent, arg_Ts&& ... args) {
-			return ecs::pool<T, registry<Ts...>>{ this }.try_init(ent, std::forward<arg_Ts>()...);
+		inline T& try_emplace(traits::get_handle_t<traits::get_table_t<T>> ent, arg_Ts&& ... args) {
+			return ecs::pool<T, registry<Ts...>>{ this }.try_emplace(ent, std::forward<arg_Ts>()...);
 		}
 
 		template<traits::component_class T, typename ... arg_Ts> requires(traits::is_compatible_v<registry<Ts...>, T>)
-		inline T& init(traits::get_handle_t<traits::get_table_t<T>> ent, arg_Ts&& ... args) {
-			return ecs::pool<T, registry<Ts...>>{ this }.init(ent, std::forward<arg_Ts>()...);
+		inline T& emplace(traits::get_handle_t<traits::get_table_t<T>> ent, arg_Ts&& ... args) {
+			return ecs::pool<T, registry<Ts...>>{ this }.emplace(ent, std::forward<arg_Ts>()...);
 		}
 
 		template<traits::component_class T> requires(traits::is_compatible_v<registry<Ts...>, T>)
@@ -128,33 +126,33 @@ namespace ecs {
 		}
 
 		template<traits::component_class T> requires(traits::is_compatible_v<registry<Ts...>, T>)
-		inline bool has(traits::get_handle_t<traits::get_table_t<T>> ent) const {
+		inline bool has_component(traits::get_handle_t<traits::get_table_t<T>> ent) const {
 			return ecs::pool<const T, const registry<Ts...>>{ this }.contains(ent);
 		}
 
 		template<traits::component_class T> requires(traits::is_compatible_v<registry<Ts...>, T>)
-		inline T& get(traits::get_handle_t<traits::get_table_t<T>> ent) {
-			return ecs::pool<T, registry<Ts...>>{ this }.get(ent);
+		inline T& get_component(traits::get_handle_t<traits::get_table_t<T>> ent) {
+			return ecs::pool<T, registry<Ts...>>{ this }.get_component(ent);
 		}
 
 		template<traits::component_class T> requires(traits::is_compatible_v<registry<Ts...>, T>)
-		inline const T& get(traits::get_handle_t<traits::get_table_t<T>> ent) const {
+		inline const T& get_component(traits::get_handle_t<traits::get_table_t<T>> ent) const {
 			return ecs::pool<const T, const registry<Ts...>>{ this }.get(ent);
 		}
 
 		template<traits::table_class T=table> requires(traits::is_compatible_v<registry<Ts...>, T>)
 		inline traits::get_handle_t<T> create() {
-			return generator<T>().template create();
+			return generator<T>().create();
 		}
 		
 		template<traits::table_class T=table> requires(traits::is_compatible_v<registry<Ts...>, T>)
 		inline void destroy(traits::get_handle_t<T> ent) {
-			generator<T>().template destroy(ent);
+			generator<T>().destroy(ent);
 		}
 
 		template<traits::table_class T=table> requires(traits::is_compatible_v<registry<Ts...>, T>)
 		inline bool alive(traits::get_handle_t<T> ent) const {
-			return generator<T>().template alive(ent);
+			return generator<T>().alive(ent);
 		}
 
 		template<traits::resource_class ... Us> requires((traits::is_compatible_v<registry<Ts...>, Us> && ...))
