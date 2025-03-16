@@ -13,6 +13,8 @@ namespace ecs {
 		static constexpr T increment = std::bit_floor(value_mask) << 1; // version increment
 	
 	public:
+		friend struct entity;
+
 		using ecs_tag = ecs::tag::handle;
 		using integral_type = T;
 		struct value_type
@@ -77,7 +79,7 @@ namespace ecs {
 		inline constexpr handle(value_type val) : data(val) { }
 		inline constexpr handle(value_type val, version_type vers) : data(static_cast<T>(val) | static_cast<T>(vers)) { }
 
-		inline constexpr explicit handle(T val) : data(val) { } 
+		inline constexpr explicit handle(T val) : data(val) { }
 		
 		inline constexpr operator T() const { return data; }
 
@@ -93,8 +95,25 @@ namespace ecs {
 
 		inline constexpr bool operator==(tombstone other) const { return value_mask == value(*this); }
 		inline constexpr bool operator!=(tombstone other) const { return value_mask != value(*this); }
-		
+	
 	private:
 		T data;
+	};
+
+	struct entity { // type erased handle
+		using ecs_tag = ecs::tag::table;
+		
+		template<std::unsigned_integral T, std::size_t N>
+		entity(handle<T, N> handle) { 
+			data = static_cast<uint64_t>(handle.data);
+		}
+
+		template<std::unsigned_integral T, std::size_t N>
+		operator handle<T, N>() const {
+			return handle<T, N>(static_cast<T>(data));
+		}
+
+	private:
+		uint64_t data;
 	};
 }

@@ -79,8 +79,7 @@ namespace ecs {
 
 namespace std {
 	template<typename ... Ts> 
-	class tuple_size<ecs::element<Ts...>>
-	 : std::integral_constant<std::size_t, sizeof...(Ts)> { };
+	class tuple_size<ecs::element<Ts...>> : public std::integral_constant<std::size_t, sizeof...(Ts)> { };
 	
 	template<std::size_t N, typename T, typename ... Ts>
 	class tuple_element<N, ecs::element<T, Ts...>> : public tuple_element<N - 1, ecs::element<Ts...>> { };

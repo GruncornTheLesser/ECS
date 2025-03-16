@@ -1,7 +1,6 @@
 #pragma once
 #include <utility>
 #include <type_traits>
-#include <mutex>
 #include <shared_mutex>
 #include <functional>
 #include "meta.h"
@@ -38,7 +37,7 @@
 */
 
 
-// defaults 
+// fwd 
 namespace ecs {
 	struct table;
 }
@@ -198,6 +197,7 @@ namespace ecs {
 		template<traits::table_class T=ecs::table> struct destroy;   // handle event
 	}
 	// handles
+	struct entity;
 	template<std::unsigned_integral T, std::size_t N> struct handle;
 	struct tombstone { };
 
@@ -376,6 +376,13 @@ namespace ecs {
 		using version_type = typename T::version_type;
 		using integral_type = typename T::integral_type;
 	};
+
+	template<>
+	struct handle_traits<entity, ecs::tag::handle> {
+		using value_type = void;
+		using version_type = void;
+		using integral_type = size_t;
+	};
 }
 
 // table traits
@@ -406,7 +413,11 @@ namespace ecs {
 	};
 	
 	template<typename T, std::size_t N>
-	struct table_traits<T, ecs::tag::table_fixed<N>> { }; // TODO: FINISH ME
+	struct table_traits<T, ecs::tag::table_fixed<N>> { 
+		using allocator_type = void; // TODO: registry resource shared allocator
+		using handle_type = handle<uint32_t, 12>;
+		using factory_type = factory<T>;
+	};
 }
 
 // component traits
