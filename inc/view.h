@@ -26,7 +26,7 @@ namespace ecs {
 	struct select {
 		// remove references from handle, add references to components, as util::tuple
 		using const_type = select<const Ts...>;
-		using value_type = element<meta::if_t<traits::is_handle_v<Ts>, Ts, Ts&>...>;
+		using value_type = element<std::conditional_t<traits::is_table_v<Ts> || traits::is_handle_v<Ts>, Ts, Ts&>...>;
 
 		template<typename reg_T, typename handle_T>
 		static inline value_type retrieve(reg_T* reg, std::size_t pos, handle_T ent) {

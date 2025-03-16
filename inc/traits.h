@@ -11,7 +11,7 @@
 #endif
 
 #ifndef ECS_DEFAULT_COMPONENT_TAG
-#define ECS_DEFAULT_COMPONENT_TAG ecs::tag::component_basictype<ecs::table>
+#define ECS_DEFAULT_COMPONENT_TAG ecs::tag::component_basictype<ecs::entity>
 #endif
 
 #ifndef ECS_DEFAULT_EVENT_TAG
@@ -37,16 +37,15 @@
 */
 
 
-// fwd 
 namespace ecs {
-	struct table;
+	struct entity;
 }
 
 // tags
 namespace ecs::tag {
 	struct handle { };
 
-	struct resource_custom { }; // must define 
+	struct resource_custom { };
 	struct resource_unrestricted { };
 	struct resource_priority { };
 	struct resource_restricted { };
@@ -110,29 +109,34 @@ namespace ecs {
 		template<typename T, typename=void> struct get_traits;
 		template<typename T> using get_traits_t = typename get_traits<T>::type;
 
-		template<typename T> struct get_resource_dependencies { using type = typename get_traits_t<T>::resource_dependencies; };
-		template<typename T> using get_resource_dependencies_t = typename get_resource_dependencies<T>::type;
+		template<typename ... Ts> struct get_resource_dependencies { using type = meta::unique_t<meta::concat_t<typename get_resource_dependencies<Ts>::type...>>; };
+		template<typename T> struct get_resource_dependencies<T> { using type = typename get_traits_t<T>::resource_dependencies; };
+		template<typename ... Ts> using get_resource_dependencies_t = typename get_resource_dependencies<Ts...>::type;
 
-		template<typename T> struct get_table_dependencies { using type = typename get_traits_t<T>::table_dependencies; };
-		template<typename T> using get_table_dependencies_t = typename get_table_dependencies<T>::type;
-		
-		template<typename T> struct get_component_dependencies { using type = typename get_traits_t<T>::component_dependencies; };
-		template<typename T> using get_component_dependencies_t = typename get_component_dependencies<T>::type;
+		template<typename ... Ts> struct get_table_dependencies { using type = meta::unique_t<meta::concat_t<typename get_table_dependencies<Ts>::type...>>; };
+		template<typename T> struct get_table_dependencies<T> { using type = typename get_traits_t<T>::table_dependencies; };
+		template<typename ... Ts> using get_table_dependencies_t = typename get_table_dependencies<Ts...>::type;
 
-		template<typename T> struct get_event_dependencies { using type = typename get_traits_t<T>::event_dependencies; };
-		template<typename T> using get_event_dependencies_t = typename get_event_dependencies<T>::type;
+		template<typename ... Ts> struct get_component_dependencies { using type = meta::unique_t<meta::concat_t<typename get_component_dependencies<Ts>::type...>>; };
+		template<typename T> struct get_component_dependencies<T> { using type = typename get_traits_t<T>::component_dependencies; };
+		template<typename ... Ts> using get_component_dependencies_t = typename get_component_dependencies<Ts...>::type;
 
-		template<typename ... Ts> class registry_builder;
-		template<typename ... Ts> struct pipeline_builder;
+		template<typename ... Ts> struct get_event_dependencies { using type = meta::unique_t<meta::concat_t<typename get_event_dependencies<Ts>::type...>>; };
+		template<typename T> struct get_event_dependencies<T> { using type = typename get_traits_t<T>::event_dependencies; };
+		template<typename ... Ts> using get_event_dependencies_t = typename get_event_dependencies<Ts...>::type;
+
 		template<typename ... Ts> struct view_builder;
 
-		template<typename reg_T, typename T> struct is_compatible;
-		template<typename ... Ts, typename T> struct is_compatible<std::tuple<Ts...>, T> : std::bool_constant<(std::is_same_v<T, Ts> || ...)> { };
-		template<typename reg_T, table_class T> struct is_compatible<reg_T, T> : is_compatible<typename reg_T::handle_set, std::remove_const_t<T>> { };
-		template<typename reg_T, event_class T> struct is_compatible<reg_T, T> : is_compatible<typename reg_T::event_set, std::remove_const_t<T>> { };
-		template<typename reg_T, component_class T> struct is_compatible<reg_T, T> : is_compatible<typename reg_T::component_set, std::remove_const_t<T>> { };
-		template<typename reg_T, resource_class T> struct is_compatible<reg_T, T> : is_compatible<typename reg_T::resource_set, std::remove_const_t<T>> { };
-		template<typename reg_T, typename T> static constexpr bool is_compatible_v = is_compatible<reg_T, T>::value;
+		template<typename T, typename reg_T> struct is_accessible;
+		template<table_class T, typename reg_T> struct is_accessible<T, reg_T> : meta::disjunction<typename reg_T::handle_set, std::is_same, T> { };
+		template<event_class T, typename reg_T> struct is_accessible<T, reg_T> : meta::disjunction<typename reg_T::event_set, std::is_same, T> { };
+		template<component_class T, typename reg_T> struct is_accessible<T, reg_T> : meta::disjunction<typename reg_T::component_set, std::is_same, T> { };
+		template<resource_class T, typename reg_T> struct is_accessible<T, reg_T> : meta::disjunction<typename reg_T::resource_set, std::is_same, T> { };
+		template<typename T, typename reg_T> static constexpr bool is_accessible_v = is_accessible<T, reg_T>::value;
+
+		// resource
+		template<typename T> struct get_container { using type = typename resource_traits<std::remove_const_t<T>>::container_type; };
+		template<typename T> using get_container_t = typename get_container<T>::type;
 
 		// event_traits
 
@@ -171,8 +175,11 @@ namespace ecs {
 // fwd
 namespace ecs {
 	// container
+	#ifndef ECS_DYNAMIC_REGISTRY
 	template<typename ... Ts> class registry;
-
+	#else 
+	class registry;
+	#endif
 	enum class priority { LOW = 0, MEDIUM = 1, HIGH = 2 };
 	struct priority_mutex;
 	struct priority_shared_mutex;
@@ -184,25 +191,21 @@ namespace ecs {
 	template<typename T> struct storage;
 	template<typename T> struct invoker;
 	
-	// table
-	struct table { using ecs_tag = ecs::tag::table; }; // default table
-	
 	// events
 	namespace event {
 		template<traits::resource_class T>  struct acquire;   // resource event
 		template<traits::resource_class T>  struct release;   // resource event
 		template<traits::component_class T> struct init;      // component event
 		template<traits::component_class T> struct terminate; // component event
-		template<traits::table_class T=ecs::table> struct create;    // handle event
-		template<traits::table_class T=ecs::table> struct destroy;   // handle event
+		template<traits::table_class T=ecs::entity> struct create;    // handle event
+		template<traits::table_class T=ecs::entity> struct destroy;   // handle event
 	}
 	// handles
-	struct entity;
 	template<std::unsigned_integral T, std::size_t N> struct handle;
 	struct tombstone { };
 
 	// services
-	//template<typename set_T, typename reg_T> class pipeline;
+	template<typename set_T, typename reg_T> class pipeline;
 	template<typename T, typename reg_T> class generator;
 	template<typename T, typename reg_T> class pool; // TODO: maybe include policy here??
 	template<typename select_T, typename from_T, typename where_T, typename reg_T> class view;
@@ -225,8 +228,10 @@ namespace ecs {
 	template<typename T>
 	struct resource_traits<T, ecs::tag::resource_custom>
 	{
-		using container_type = typename T::container; // a wrapper around the resource holding the meta data of the resource acquisition
+		using container_type = T;
 		
+		static inline constexpr T& get_resource(container_type& cont) { return cont; } // cast
+		static inline constexpr const T& get_resource(const container_type& cont) { return cont; } // cast
 		static inline constexpr void release(container_type& cont) { cont.release(); }
 		static inline constexpr void release(const container_type& cont) { cont.release(); }
 		static inline constexpr void acquire(container_type& cont, priority p) { cont.acquire(p); }
@@ -243,6 +248,8 @@ namespace ecs {
 	{
 		using container_type = T;
 
+		static inline constexpr T& get_resource(container_type& cont) { return cont; }
+		static inline constexpr const T& get_resource(const container_type& cont) { return cont; }
 		static inline constexpr void release(container_type& cont) { }
 		static inline constexpr void release(const container_type& cont) { }
 		static inline constexpr void acquire(container_type& cont, priority p) { }
@@ -259,6 +266,8 @@ namespace ecs {
 	{
 		using container_type = std::pair<T, priority_shared_mutex>;
 		
+		static inline constexpr T& get_resource(container_type& cont) { return std::get<0>(cont); }
+		static inline constexpr const T& get_resource(const container_type& cont) { return std::get<0>(cont); }
 		static inline constexpr void release(container_type& cont) { std::get<1>(cont).unlock(); }
 		static inline constexpr void release(const container_type& cont) { std::get<1>(cont).unlock(); }
 		static inline constexpr void acquire(container_type& cont, priority p) { std::get<1>(cont).lock(p); }
@@ -274,8 +283,9 @@ namespace ecs {
 	struct resource_traits<T, ecs::tag::resource_restricted>
 	{
 		using container_type = std::pair<T, std::shared_mutex>;
-		using identifier_type = T;
 		
+		static inline constexpr T& get_resource(container_type& cont) { return std::get<0>(cont); }
+		static inline constexpr const T& get_resource(const container_type& cont) { return std::get<0>(cont); }
 		static inline constexpr void release(container_type& cont) { std::get<1>(cont).unlock(); }
 		static inline constexpr void release(const container_type& cont) { std::get<1>(cont).unlock(); }
 		static inline constexpr void acquire(container_type& cont, priority p) { std::get<1>(cont).lock(); }
@@ -291,8 +301,9 @@ namespace ecs {
 	struct resource_traits<T, ecs::tag::resource_exclusive_priority>
 	{
 		using container_type = typename std::pair<T, priority_mutex>;
-		using identifier_type = T;
 		
+		static inline constexpr T& get_resource(container_type& cont) { return std::get<0>(cont); }
+		static inline constexpr const T& get_resource(const container_type& cont) { return std::get<0>(cont); }
 		static inline constexpr void release(container_type& cont) { std::get<1>(cont).unlock(); }
 		static inline constexpr void release(const container_type& cont) { std::get<1>(cont).unlock(); }
 		static inline constexpr void acquire(container_type& cont, priority p) { std::get<1>(cont).lock(p); }
@@ -308,7 +319,6 @@ namespace ecs {
 	struct resource_traits<T, ecs::tag::resource_exclusive_restricted>
 	{
 		using container_type = typename T::resource_container;
-		using identifier_type = T;
 		
 		static inline constexpr void release(container_type& res) { res.release(); }
 		static inline constexpr void release(const container_type& res) { res.release(); }

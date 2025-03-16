@@ -47,7 +47,7 @@ namespace ecs {
 			fact.active[fact.inactive] = hnd;
 			fact.inactive = value_type{ tmp }; // increment inactive list
 			
-			if constexpr (traits::is_compatible_v<reg_T, event::create<table_type>>) {
+			if constexpr (traits::is_accessible_v<event::create<table_type>, reg_T>) {
 				reg->template on<event::create<table_type>>().invoke({ hnd });
 			}
 			
@@ -60,7 +60,7 @@ namespace ecs {
 			std::size_t pos = value_type{ hnd }; // get handle value
 			if (fact.active[pos] != hnd) return; // if not alive
 			
-			if constexpr (traits::is_compatible_v<reg_T, event::destroy<table_type>>) {
+			if constexpr (traits::is_accessible_v<event::destroy<table_type>, reg_T>) {
 				reg->template on<event::destroy<table_type>>().invoke({hnd});
 			}
 
@@ -76,7 +76,7 @@ namespace ecs {
 		constexpr void clear() {
 			auto& fact = reg->template get_resource<factory_type>();
 			
-			if constexpr (traits::is_compatible_v<reg_T, event::destroy<table_type>>)
+			if constexpr (traits::is_accessible_v<event::destroy<table_type>, reg_T>)
 			{
 				for (std::size_t i = 0; i < fact.active.size(); ++i)
 				{

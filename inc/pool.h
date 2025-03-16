@@ -111,8 +111,8 @@ namespace ecs
 		using reverse_iterator = std::reverse_iterator<iterator>;
 		using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 	private:
-		static constexpr bool enable_terminate_event = traits::is_compatible_v<registry_type, event::terminate<T>>;
-		static constexpr bool enable_init_event = traits::is_compatible_v<registry_type, event::init<T>>;
+		static constexpr bool enable_terminate_event = traits::is_accessible_v<event::terminate<T>, registry_type>;
+		static constexpr bool enable_init_event = traits::is_accessible_v<event::init<T>, registry_type>;
 		
 	public:
 		inline constexpr pool(reg_T* reg) noexcept : reg(reg) { }
@@ -300,7 +300,7 @@ namespace ecs
 			}; 
 		}
 
-		constexpr void terminate(handle_type ent) {
+		constexpr void erase(handle_type ent) {
 			std::size_t key = handle_value_type{ ent };
 			if (key >= reg->template get_resource<indexer_type>().size()) throw std::out_of_range("");
 
@@ -327,7 +327,7 @@ namespace ecs
 			reg->template get_resource<manager_type>().pop_back();
 		}
 		
-		bool try_terminate(handle_type ent) {
+		bool try_erase(handle_type ent) {
 			std::size_t key = handle_value_type{ ent };
 			if (key >= reg->template get_resource<indexer_type>().size()) return false;
 
