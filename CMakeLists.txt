@@ -1,0 +1,15 @@
+cmake_minimum_required(VERSION 3.20)
+
+project(ECS VERSION 1.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
+
+include_directories(${CMAKE_SOURCE_DIR}/inc)
+
+if (EXISTS "${CMAKE_SOURCE_DIR}/main.cpp") 
+	add_executable(ecs ${CMAKE_SOURCE_DIR}/main.cpp)
+endif()
+
