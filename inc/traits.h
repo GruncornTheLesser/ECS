@@ -205,9 +205,8 @@ namespace ecs {
 	struct tombstone { };
 
 	// services
-	template<typename set_T, typename reg_T> class pipeline;
 	template<typename T, typename reg_T> class generator;
-	template<typename T, typename reg_T> class pool; // TODO: maybe include policy here??
+	template<typename T, typename reg_T> class pool;
 	template<typename select_T, typename from_T, typename where_T, typename reg_T> class view;
 
 	// iterators

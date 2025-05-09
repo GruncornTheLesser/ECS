@@ -4,11 +4,14 @@
 #include "element.h"
 
 namespace ecs {
-	template<typename T> struct manager : std::vector<typename table_traits<typename component_traits<T>::table_type>::handle_type> 
+	template<typename T> struct manager
+	 : std::vector<typename table_traits<typename component_traits<T>::table_type>::handle_type> 
 	{ using ecs_tag = ecs::tag::resource; };
-	template<typename T> struct indexer : std::vector<typename table_traits<typename component_traits<T>::table_type>::handle_type> 
+	template<typename T> struct indexer
+	 : std::vector<typename table_traits<typename component_traits<T>::table_type>::handle_type> 
 	{ using ecs_tag = ecs::tag::resource; };
-	template<typename T> struct storage : std::vector<T> { using ecs_tag = ecs::tag::resource; };
+	template<typename T> struct storage
+	 : std::vector<T> { using ecs_tag = ecs::tag::resource; };
 }
 
 // pool iterator

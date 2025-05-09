@@ -1,12 +1,11 @@
 #pragma once
 #include "traits.h"
 #include "generator.h"
-#include "pipeline.h"
 #include "pool.h"
 #include "view.h"
 /* 
 resources: factory, storage, indexer, manager, invoker
-services: pool, view, generator, pipeline
+services: pool, view, generator
 */
 
 namespace ecs {
@@ -87,18 +86,6 @@ namespace ecs {
 		inline ecs::view<ecs::select<const Us...>, from_T, where_T, const ecs::registry<Ts...>>
 		view(from_T from={}, where_T where={}) const {
 			return this;
-		}
-
-		template<typename ... Us> requires(meta::conjunction_v<traits::get_resource_dependencies_t<Us...>, ecs::traits::is_accessible, ecs::registry<Ts...>>)
-		inline ecs::pipeline<traits::get_resource_dependencies_t<Us...>, ecs::registry<Ts...>> 
-		pipeline(ecs::priority p = priority::MEDIUM) {
-			return { this, p };
-		}
-
-		template<typename ... Us> requires(meta::conjunction_v<traits::get_resource_dependencies_t<Us...>, ecs::traits::is_accessible, ecs::registry<Ts...>>)
-		inline ecs::pipeline<meta::concat_t<traits::get_resource_dependencies_t<Us>...>, const ecs::registry<Ts...>> 
-		pipeline(ecs::priority p = priority::MEDIUM) const {
-			return { this, p };
 		}
 
 		template<traits::component_class T, typename ... arg_Ts> requires(traits::is_accessible_v<T, registry<Ts...>>)
