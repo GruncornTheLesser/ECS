@@ -1,7 +1,7 @@
 #pragma once
-#include "traits.h"
-#include "element.h"
-#include "meta.h"
+#include "core/fwd.h"
+#include "util/view_element.h"
+#include "core/meta.h"
 
 namespace ecs {
 	namespace traits {
@@ -18,14 +18,14 @@ namespace ecs {
 		{
 			using select_type = select<select_Ts...>;
 			using from_type = from<from_T>;
-			using where_type = meta::unique_t<meta::filter_t<include<select_Ts...>, is_component>>;
+			using where_type = meta::unique_t<meta::remove_if_t<meta::filter_t<inc<select_Ts...>, is_component>, std::is_same, from_type>>;
 		};
 	}
 
 	template<typename ... Ts>
 	struct select {
 		using const_type = select<const Ts...>;
-		using value_type = element<std::conditional_t<traits::is_table_v<Ts> || traits::is_handle_v<Ts>, Ts, Ts&>...>;
+		using value_type = view_element<std::conditional_t<traits::is_entity_v<Ts> || traits::is_handle_v<Ts>, Ts, Ts&>...>;
 
 		template<typename reg_T, typename handle_T>
 		static inline value_type retrieve(reg_T* reg, std::size_t pos, handle_T ent) {
@@ -34,11 +34,11 @@ namespace ecs {
 	private:
 		template<traits::component_class T, typename reg_T, typename handle_T>
 		static inline T& get(reg_T* reg, std::size_t pos, handle_T ent) {
-			return reg->template get_resource<traits::get_storage_t<T>>()[pos];
+			return reg->template get_resource<typename component_traits<T>::storage_type>()[pos];
 		}
 
-		template<typename handle_T, typename reg_T>
-		static inline handle_T get(reg_T* reg, std::size_t pos, handle_T ent) {
+		template<typename T, typename reg_T> requires (ecs::traits::is_entity_v<T> || ecs::traits::is_handle_v<T>)
+		static inline T get(reg_T* reg, std::size_t pos, T ent) {
 			return ent;
 		}
 	};
@@ -49,7 +49,7 @@ namespace ecs {
 	};
 
 	template<typename ... Ts>
-	struct include {
+	struct inc {
 		template<typename reg_T, typename handle_T>
 		static inline bool valid(reg_T* reg, handle_T ent) {
 			return (reg->template pool<Ts>().contains(ent) && ...);
@@ -57,7 +57,7 @@ namespace ecs {
 	};
 
 	template<typename ... Ts>
-	struct exclude {
+	struct exc {
 		template<typename reg_T, typename handle_T>
 		static inline bool valid(reg_T* reg, handle_T ent) {
 			return !(reg->template pool<Ts>().contains(ent) || ...);
@@ -77,17 +77,19 @@ namespace ecs {
 namespace ecs {
 	template<typename select_T, typename from_T, typename where_T, typename reg_T>
 	class view_iterator {
-	public:
+		public:
 		using view_type = view<select_T, from_T, where_T, reg_T>;
 		using from_type = typename view_type::from_type;
-		using table_type = typename view_type::table_type;
+		using entity_type = typename view_type::entity_type;
 		using handle_type = typename view_type::handle_type;
 		
 		using iterator_category = std::bidirectional_iterator_tag;
 		using value_type = typename select_T::value_type;
 		using difference_type = std::ptrdiff_t;
 		using sentinel_type = view_sentinel;
-		
+	private:
+		using manager_type = typename component_traits<from_type>::manager_type;
+	public:
 		view_iterator() : reg(nullptr), pos(-1), ent() { }
 		view_iterator(reg_T* reg, std::size_t pos) : reg(reg), pos(pos), ent() { }
 		view_iterator(const view_iterator& other) : reg(other.reg), pos(other.pos), ent(other.ent) { }
@@ -99,7 +101,7 @@ namespace ecs {
 		
 		constexpr view_iterator& operator++() {
 			while (--pos != static_cast<std::size_t>(-1)) {
-				ent = reg->template get_resource<traits::get_manager_t<from_type>>()[pos];
+				ent = reg->template get_resource<manager_type>()[pos];
 				if (where_T::valid(reg, ent)) {
 					return *this;
 				}
@@ -109,7 +111,7 @@ namespace ecs {
 		}
 		constexpr view_iterator& operator--() {
 			while (++pos != reg->template count<from_type>()) {
-				ent = reg->template get_resource<traits::get_manager_t<from_type>>()[pos]; 
+				ent = reg->template get_resource<manager_type>()[pos]; 
 				if (where_T::valid(reg, ent)) {
 					return *this;
 				}
@@ -146,8 +148,8 @@ namespace ecs {
 	class view {
 	public:
 		using from_type = std::remove_const_t<typename from_T::type>;
-		using table_type = typename component_traits<from_type>::table_type;
-		using handle_type = typename table_traits<table_type>::handle_type;
+		using entity_type = typename component_traits<from_type>::entity_type;
+		using handle_type = typename entity_traits<entity_type>::handle_type;
 
 		using iterator = view_iterator<select_T, from_T, where_T, reg_T>;
 		using const_iterator = view_iterator<typename select_T::const_type, from_T, where_T, reg_T>;

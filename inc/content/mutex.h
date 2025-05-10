@@ -1,10 +1,14 @@
 #pragma once
-#include "traits.h"
-#include <shared_mutex>
+#include "core/fwd.h"
 #include <condition_variable>
 
 namespace ecs
 {
+	struct null_mutex {
+		void lock(priority p = priority::MEDIUM) { }
+		void unlock() { }
+	};
+
 	struct priority_shared_mutex
 	{
 	public:

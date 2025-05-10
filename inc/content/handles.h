@@ -1,7 +1,8 @@
 #pragma once
-#include <bit>
+#include "core/fwd.h"
 #include <concepts>
-#include "traits.h"
+#include <stdint.h>
+#include <bit>
 
 namespace ecs {
 	template<std::unsigned_integral T, std::size_t N>
@@ -15,10 +16,8 @@ namespace ecs {
 	public:
 		friend struct entity;
 
-		using ecs_tag = ecs::tag::handle;
 		using integral_type = T;
-		struct value_type
-		{
+		struct value_type {
 			template<std::unsigned_integral, std::size_t> friend struct handle;
 		
 			inline constexpr value_type() : data(0) { }
@@ -41,8 +40,7 @@ namespace ecs {
 		private:
 			T data;
 		};
-		struct version_type
-		{
+		struct version_type {
 			template<std::unsigned_integral, std::size_t> friend struct handle;
 
 		private:
@@ -101,19 +99,24 @@ namespace ecs {
 	};
 
 	struct entity { // type erased handle
-		using ecs_tag = ecs::tag::table;
+		using ecs_tag = ecs::tag::entity;
 		
 		template<std::unsigned_integral T, std::size_t N>
-		entity(handle<T, N> handle) { 
-			data = static_cast<uint64_t>(handle.data);
-		}
+		entity(handle<T, N> handle) : data(static_cast<uint64_t>(handle.data)) { }
+		entity(tombstone handle) : data(0xffffffffffffffff) { }
 
 		template<std::unsigned_integral T, std::size_t N>
-		operator handle<T, N>() const {
-			return handle<T, N>(static_cast<T>(data));
-		}
+		operator handle<T, N>() const { return handle<T, N>(static_cast<T>(data)); }
+
+		template<std::unsigned_integral T>
+		explicit operator T() const { return static_cast<T>(data); }
 
 	private:
 		uint64_t data;
+	};
+
+	template<typename T>
+	struct event_entity {
+		using ecs_tag = tag::entity;
 	};
 }
