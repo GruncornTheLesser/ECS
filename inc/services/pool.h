@@ -1,18 +1,15 @@
 #pragma once
-#include "core/fwd.h"
+#include "core/traits.h"
 #include "util/view_element.h"
 #include <stdexcept>
 
 // pool iterator
 namespace ecs {
-	template<typename T, typename reg_T>
+	template<ecs::traits::component_class T, typename reg_T>
 	class pool_iterator {
 	public:
 		using entity_type = typename component_traits<std::remove_const_t<T>>::entity_type;
 		using handle_type = typename entity_traits<entity_type>::handle_type;
-		using handle_value_type = typename handle_traits<handle_type>::value_type;
-		using handle_version_type = typename handle_traits<handle_type>::version_type;
-		using handle_integral_type = typename handle_traits<handle_type>::integral_type;
 
 		using manager_type = typename component_traits<std::remove_const_t<T>>::manager_type;
 		using indexer_type = typename component_traits<std::remove_const_t<T>>::indexer_type;
@@ -80,16 +77,16 @@ namespace ecs {
 // pool
 namespace ecs
 {
-	template<typename T, typename reg_T>
+	template<ecs::traits::component_class T, typename reg_T>
 	class pool {
 	public:
 		using registry_type = reg_T;
 		
 		using entity_type = typename component_traits<std::remove_const_t<T>>::entity_type;
 		using handle_type = typename entity_traits<entity_type>::handle_type;
-		using handle_value_type = typename handle_traits<handle_type>::value_type;
-		using handle_version_type = typename handle_traits<handle_type>::version_type;
-		using handle_integral_type = typename handle_traits<handle_type>::integral_type;
+		using value_view = typename handle_type::value_view;
+		using version_view = typename handle_type::version_view;
+		using integral_type = typename handle_type::integral_type;
 		
 		using manager_type = typename component_traits<std::remove_const_t<T>>::manager_type;
 		using indexer_type = typename component_traits<std::remove_const_t<T>>::indexer_type;
@@ -157,11 +154,11 @@ namespace ecs
 		}	
 		inline constexpr reference operator[](handle_type ent) {
 			if constexpr (enable_indexer) {
-				std::size_t key = handle_value_type { ent };
-				std::size_t pos = handle_value_type{ reg->template get_resource<indexer_type>()[key] };
-				return operator[](pos);
+				auto key = value_type{ ent };
+				auto pos = reg->template get_resource<indexer_type>().at(key);
+				return operator[](value_type{ pos });
 			} else {
-				auto& manager = reg->template get_resource<indexer_type>();
+				auto& manager = reg->template get_resource<manager_type>();
 				return operator[](std::ranges::find(manager, ent) - manager.begin());
 			}
 		}
@@ -172,8 +169,7 @@ namespace ecs
 		}
 
 		constexpr T& get_component(handle_type ent) requires (enable_storage) {
-			auto pos = index_of(ent);
-			return reg->template get_resource<storage_type>()[pos];
+			return reg->template get_resource<storage_type>().at(index_of(ent));
 		}
 
 		constexpr reference front() {
@@ -186,17 +182,16 @@ namespace ecs
 			return operator[](size() - 1);
 		}
 
-		[[nodiscard]] constexpr std::size_t index_of(handle_type ent) {
+		[[nodiscard]] constexpr integral_type index_of(handle_type ent) {
 			if constexpr (enable_indexer) {
 				auto& indexer = reg->template get_resource<indexer_type>();
-				if (auto it = indexer.find(handle_value_type{ ent }); it != indexer.end()) {
-					auto ind = it->second;
-					if (handle_version_type{ ind } == handle_version_type{ ent }) {
-						return handle_value_type{ ind };
-					} 
+				if (auto it = indexer.find(value_view{ ent }); it != indexer.end()) {
+					if (version_view{ it->second } == version_view{ ent }) {
+						return value_view{ it->second };
+					}
 				}
 			} else {
-				auto& manager = reg->template get_resource<indexer_type>();
+				auto& manager = reg->template get_resource<manager_type>();
 				if (auto it = std::ranges::find(manager, ent); it != manager.end()) {
 					return it - manager.begin();
 				}
@@ -207,7 +202,8 @@ namespace ecs
 		[[nodiscard]] bool contains(handle_type ent) {
 			if constexpr (enable_indexer) {
 				auto& indexer = reg->template get_resource<indexer_type>();
-				return indexer.contains(handle_value_type{ ent });
+				auto it = indexer.find(value_view{ ent });
+				return (it != indexer.end()) && (version_view { it->second } == version_view{ ent });
 			} else {
 				auto& manager = reg->template get_resource<manager_type>();
 				return std::ranges::find(manager, ent) != manager.end();
@@ -218,11 +214,11 @@ namespace ecs
 		template<typename ... arg_Ts> requires (std::is_constructible_v<T, arg_Ts...>)
 		std::conditional_t<enable_storage, T&, void> 
 		emplace(handle_type ent, arg_Ts&&... args) {
-			handle_integral_type back = size();
+			integral_type back = size();
 
 			if constexpr (enable_indexer) {
 				auto& indexer = reg->template get_resource<indexer_type>();
-				indexer[handle_value_type{ ent }] = handle_type{ back, ent };
+				indexer[value_view{ ent }] = handle_type{ back, ent };
 			}
 
 			reserve(back + 1);
@@ -247,48 +243,23 @@ namespace ecs
 			}
 		}
 
-		template<typename ... arg_Ts> requires (std::is_constructible_v<T, arg_Ts...>)
-		std::conditional_t<enable_storage, T&, void> try_emplace(handle_type ent, arg_Ts&& ... args) {
-			std::size_t pos = index_of(ent);
-			if (pos == -1) {
-				return emplace(ent, std::forward<arg_Ts>(args)...);
-			} else {
-				if constexpr (enable_storage) {
-					return reg->template get_resource<storage_type>()[pos];
-				}
-			}
-		}
-
 		constexpr bool erase(handle_type ent) {
-			handle_integral_type pos = index_of(ent);
+			integral_type back = static_cast<integral_type>(size() - 1);
+			integral_type pos = index_of(ent);
+			
 			if (pos == -1) return false;
-			
-			if constexpr (enable_term_event) {
-				if constexpr (enable_storage) {
-					reg->template on<event::term<T>>().invoke(ent, reg->template get_resource<storage_type>()[pos]);
-				} else {
-					reg->template on<event::term<T>>().invoke(ent);
-				}
-			}
-			
-			handle_integral_type back = size() - 1;
 			
 			if constexpr (enable_indexer) {
 				auto& indexer = reg->template get_resource<indexer_type>();
-				indexer.erase(handle_value_type{ ent });
-
-				handle_integral_type back_ent = handle_value_type { reg->template get_resource<manager_type>()[back] };
-				indexer[back_ent] = handle_type{ pos, indexer[back] }; // update value, keep version
+				indexer.erase(value_view{ ent });
 			}
 			
 			if (pos != back) {
-				std::swap(
-					reg->template get_resource<manager_type>()[pos], 
-					reg->template get_resource<manager_type>()[back]
-				);
-			}
-
-			if (pos != back) {
+				if constexpr (enable_indexer) {
+					auto& indexer = reg->template get_resource<indexer_type>();
+					handle_type back_ent = reg->template get_resource<manager_type>()[back];
+					indexer.at(value_view{ back_ent }) = { pos, version_view{ back_ent } }; // update value, keep version
+				}
 				std::swap(
 					reg->template get_resource<manager_type>()[pos], 
 					reg->template get_resource<manager_type>()[back]
@@ -305,6 +276,15 @@ namespace ecs
 			if constexpr (enable_storage) {
 				reg->template get_resource<storage_type>().pop_back();
 			}
+			
+			if constexpr (enable_term_event) {
+				if constexpr (enable_storage) {
+					reg->template on<event::term<T>>().invoke(ent, reg->template get_resource<storage_type>()[pos]);
+				} else {
+					reg->template on<event::term<T>>().invoke(ent);
+				}
+			}
+
 			return true;
 		}
 
@@ -324,12 +304,12 @@ namespace ecs
 				}
 			}
 
-			for (std::size_t pos = 0; pos < size(); ++pos) {
-				std::size_t key = handle_value_type{ reg->template get_resource<manager_type>()[pos] };
-				reg->template get_resource<indexer_type>()[key] = handle_value_type{ tombstone{} };
-			}
-
+			
 			reg->template get_resource<manager_type>().clear();
+
+			if constexpr (enable_indexer) {
+				reg->template get_resource<indexer_type>().clear();
+			}
 			if constexpr (enable_storage) {
 				reg->template get_resource<storage_type>().clear();
 			}

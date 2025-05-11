@@ -2,6 +2,9 @@
 #include <string_view>
 #include <array>
 #include <algorithm>
+#include <utility>
+#include <type_traits>
+
 
 #if defined(__clang__)
 	#define PF_CMD __PRETTY_FUNCTION__
@@ -30,13 +33,28 @@ namespace ecs::meta { // NOTE: when changing the namespace of this func you must
 
 namespace ecs::meta {
 	template<template<typename ...> typename Pred_Tp> struct negate { template<typename T, typename ... Arg_Ts> using type = Pred_Tp<T, Arg_Ts...>; };
-
+	/**
+	 * @brief counts the number of variadic arguments in a type. Extends std::tuple_size to allow use on any variadic tuple like template.
+	 */
 	template<typename Tup> struct arg_count;
 	template<typename Tup> static constexpr std::size_t arg_count_v = arg_count<Tup>::value;
 
-	template<std::size_t I, typename Tup> struct arg_element;
-	template<std::size_t I, typename Tup> using arg_element_t = typename arg_element<I, Tup>::type;
+	/**
+	 * @brief selects a Nth element of variadic type. extends std::tuple_element to allow use on any variadic tuple like template.
+	 */
+	template<std::size_t N, typename Tup> struct arg_element;
+	template<std::size_t N, typename Tup> using arg_element_t = typename arg_element<N, Tup>::type;
+	
+	/**
+	 * @brief allows the passing of arguments to variadic templates.
+	 */
+	template<template<typename ...> typename Tp, typename ... Arg_Ts> struct arg_append { template<typename ... Ts> using type = typename Tp<Ts..., Arg_Ts...>::type; };
 
+	/**
+	 * @brief conditionally evaluates T on predicate Pred_Tp with Eval_Tp. Extends std::conditional to lazily evaluate types allowing for guarded evaluation.
+	 */
+	 template<typename T, template<typename ...> typename Pred_Tp, template<typename...> typename If_Tp, template<typename...> typename Else_Tp=std::type_identity> struct eval_if;
+	 template<typename T, template<typename ...> typename Pred_Tp, template<typename...> typename If_Tp, template<typename...> typename Else_Tp=std::type_identity> using eval_if_t = typename eval_if<T, Pred_Tp, If_Tp, Else_Tp>::type;
 	
 	/**
 	 * @brief template meta program to apply transform template struct to each type in tuple
@@ -167,20 +185,27 @@ namespace ecs::meta {
 	 */
 	template<typename Tup, typename Func_T, typename ... Arg_Ts> 
 	inline constexpr decltype(auto) apply(Func_T&& func, Arg_Ts&& ... args);
+
+	template<typename T, typename U> struct is_const_accessible;
+	template<typename T, typename U> static constexpr bool is_const_accessible_v = is_const_accessible<T, U>::value;
+	
 }
 
 namespace ecs::meta {
 	template<template<typename...> typename Tp, typename ... Ts> 
 	struct arg_count<Tp<Ts...>> { static constexpr std::size_t value = sizeof...(Ts); };
 
-	template<std::size_t I, template<typename...> typename Tp, typename T, typename ... Ts>
-	struct arg_element<I, Tp<T, Ts...>> : arg_element<I - 1u, Tp<Ts...>> { };
+	template<std::size_t N, template<typename...> typename Tp, typename T, typename ... Ts>
+	struct arg_element<N, Tp<T, Ts...>> : arg_element<N - 1u, Tp<Ts...>> { };
 
 	template<template<typename...> typename Tp, typename T, typename ... Ts>
 	struct arg_element<0, Tp<T, Ts...>> { using type = T; };
+	
+	template<typename T, template<typename ...> typename Pred_Tp, template<typename...> typename If_Tp, template<typename...> typename Else_Tp> requires (Pred_Tp<T>::value)
+	struct eval_if<T, Pred_Tp, If_Tp, Else_Tp> : If_Tp<T> { };
 
-
-
+	template<typename T, template<typename ...> typename Pred_Tp, template<typename...> typename If_Tp, template<typename...> typename Else_Tp> requires (!Pred_Tp<T>::value)
+	struct eval_if<T, Pred_Tp, If_Tp, Else_Tp> : Else_Tp<T> { };
 	
 	template<template<typename...> typename Tp, typename ... Ts, template<typename...> typename Eval_Tp, typename ... Us> 
 	struct each<Tp<Ts...>, Eval_Tp, Us...> { using type = Tp<typename Eval_Tp<Ts, Us...>::type...>; };
@@ -310,12 +335,6 @@ namespace ecs::meta {
 		}
 	}
 
-	/**
-	 * @brief invoke callable object func with the template arguments from Tup, differs from std::apply, by not requiring tuple value
-	 * @tparam Tup tuple elements to be used as template arguments in func
-	 * @param func a template function, taking template arguments Ts... eg [&]<typename ... Ts>{ } 
-	 * @return constexpr decltype(auto) return value from func
-	 */
 	template<typename Tup, typename Func_T, typename ... Arg_Ts> 
 	inline constexpr decltype(auto) apply(Func_T&& func, Arg_Ts&& ... args) {
 		return details::apply<Tup>(std::forward<Func_T>(func), std::make_index_sequence<arg_count_v<Tup>>{}, std::forward<Arg_Ts>(args)...);

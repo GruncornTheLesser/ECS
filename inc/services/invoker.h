@@ -1,9 +1,9 @@
 #pragma once
-#include "core/fwd.h"
+#include "core/traits.h"
 
 // events
 namespace ecs {
-	template<typename T, typename reg_T>
+	template<ecs::traits::event_class T, typename reg_T>
 	struct invoker {
 	public:
 		using entity_type = typename event_traits<T>::entity_type;
@@ -14,7 +14,7 @@ namespace ecs {
 		static constexpr bool strict_order = event_traits<T>::strict_order;  // TODO: strict order events, currently disabled
 		static constexpr bool enable_fire_once = false;
 	public:
-		using ecs_tag = std::conditional_t<enable_async, tag::resource_unrestricted, tag::resource>;
+		using ecs_tag_type = std::conditional_t<enable_async, tag::resource_unrestricted, tag::resource>;
 		
 		invoker(reg_T* reg) : reg(reg) { }
 

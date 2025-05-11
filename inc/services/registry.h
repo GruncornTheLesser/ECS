@@ -7,7 +7,7 @@ services: pool, view, generator
 */
 
 namespace ecs {
-	template<typename Res_T, typename Mut_T>
+	template<ecs::traits::resource_class Res_T, typename Mut_T>
 	struct cache { 
 		template<typename Reg_T> requires(std::is_constructible_v<Res_T, Reg_T&>)
 		cache(Reg_T& reg) : resource(reg) { }
@@ -49,7 +49,6 @@ namespace ecs {
 	class registry {
 	public:
 		using resource_set = traits::get_resource_dependencies_t<Ts...>;
-		using event_set = traits::get_event_dependencies_t<Ts...>;
 		using entity_set = traits::get_entity_dependencies_t<Ts...>;
 		using component_set = traits::get_component_dependencies_t<Ts...>;
 		using resource_cache = meta::each_t<resource_set, traits::resource::get_cache>;
@@ -163,23 +162,13 @@ namespace ecs {
 		}
 
 		template<traits::component_class T, typename ... arg_Ts> requires(traits::is_accessible_v<T, registry<Ts...>> && std::is_constructible_v<T, arg_Ts...>)
-		inline T& try_emplace(traits::entity::get_handle_t<traits::component::get_entity_t<T>> ent, arg_Ts&& ... args) {
-			return ecs::pool<T, registry<Ts...>>{ this }.try_emplace(ent, std::forward<arg_Ts>(args)...);
-		}
-
-		template<traits::component_class T, typename ... arg_Ts> requires(traits::is_accessible_v<T, registry<Ts...>> && std::is_constructible_v<T, arg_Ts...>)
-		inline T& emplace(traits::entity::get_handle_t<traits::component::get_entity_t<T>> ent, arg_Ts&& ... args) {
+		inline decltype(auto) emplace(traits::entity::get_handle_t<traits::component::get_entity_t<T>> ent, arg_Ts&& ... args) {
 			return ecs::pool<T, registry<Ts...>>{ this }.emplace(ent, std::forward<arg_Ts>(args)...);
 		}
 
 		template<traits::component_class T> requires(traits::is_accessible_v<T, registry<Ts...>>)
 		inline void erase(traits::entity::get_handle_t<traits::component::get_entity_t<T>> ent) {
 			ecs::pool<T, registry<Ts...>>{ this }.erase(ent);
-		}
-
-		template<traits::component_class T> requires(traits::is_accessible_v<T, registry<Ts...>>)
-		inline bool try_erase(traits::entity::get_handle_t<traits::component::get_entity_t<T>> ent) {
-			return ecs::pool<T, registry<Ts...>>{ this }.try_erase(ent);
 		}
 
 		template<traits::component_class T> requires(traits::is_accessible_v<T, registry<Ts...>>)

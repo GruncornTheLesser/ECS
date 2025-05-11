@@ -1,8 +1,28 @@
 #pragma once
-#include "core/fwd.h"
-#include <concepts>
-#include <stdint.h>
-#include <bit>
+#include "core/traits.h"
+
+// entity traits
+namespace ecs {
+	template<typename T>
+	struct entity_traits<T, tag::entity_dynamic> {
+		using handle_type = ecs::handle<ecs::traits::entity::get_handle_integral_t<T>, ecs::traits::entity::get_handle_version_width_v<T>>;
+		using factory_type = traits::entity::get_factory_t<T, factory<T>>;
+
+		using resource_dependencies = std::tuple<factory_type>;
+		using component_dependencies = std::tuple<>;
+		using entity_dependencies = std::tuple<T>;
+	};
+	
+	template<typename T, std::size_t N>
+	struct entity_traits<T, tag::entity_fixed<N>> {
+		using handle_type = ecs::handle<ecs::traits::entity::get_handle_integral_t<T>, ecs::traits::entity::get_handle_version_width_v<T>>;
+		using factory_type = traits::entity::get_factory_t<T, factory<T>>;
+
+		using resource_dependencies = std::tuple<factory_type>;
+		using component_dependencies = std::tuple<>;
+		using entity_dependencies = std::tuple<T>;
+	};
+}
 
 namespace ecs {
 	template<std::unsigned_integral T, std::size_t N>
@@ -15,54 +35,57 @@ namespace ecs {
 	
 	public:
 		friend struct entity;
-
 		using integral_type = T;
-		struct value_type {
+		
+		struct value_view {
 			template<std::unsigned_integral, std::size_t> friend struct handle;
 		
-			inline constexpr value_type() : data(0) { }
-			inline constexpr value_type(T data) : data(data) { }
-			inline constexpr value_type(handle hnd) : data(hnd.data) { }
+			inline constexpr value_view() : data(0) { }
+			inline constexpr value_view(T data) : data(data) { }
+			inline constexpr value_view(handle hnd) : data(hnd.data) { }
 
 			inline constexpr operator integral_type() const { return data & value_mask; }
 
-			inline constexpr value_type& operator++() { data += 1; return *this; }
-			inline constexpr value_type operator++(int) { auto tmp = *this; data += 1; return tmp; }
+			inline constexpr value_view& operator++() { data += 1; return *this; }
+			inline constexpr value_view operator++(int) { auto tmp = *this; data += 1; return tmp; }
 			
-			inline constexpr value_type& operator--() { data += 1; return *this; }
-			inline constexpr value_type operator--(int) { auto tmp = *this; data += 1; return tmp; }
+			inline constexpr value_view& operator--() { data -= 1; return *this; }
+			inline constexpr value_view operator--(int) { auto tmp = *this; data -= 1; return tmp; }
 			
-			inline constexpr bool operator==(value_type other) const { return !((data ^ other.data) & version_mask); }
-			inline constexpr bool operator!=(value_type other) const { return (data ^ other.data) & version_mask; }
+			inline constexpr bool operator==(value_view other) const { return !((data ^ other.data) & value_mask); }
+			inline constexpr bool operator!=(value_view other) const { return (data ^ other.data) & value_mask; }
+
+			inline constexpr bool operator==(integral_type other) const { return (data & value_mask) == other; }
+			inline constexpr bool operator!=(integral_type other) const { return (data & value_mask) != other; }
 
 			inline constexpr bool operator==(tombstone other) const { return value_mask == T{ *this }; }
 			inline constexpr bool operator!=(tombstone other) const { return value_mask != T{ *this }; }
 		private:
 			T data;
 		};
-		struct version_type {
+		
+		struct version_view {
 			template<std::unsigned_integral, std::size_t> friend struct handle;
 
 		private:
-			inline constexpr version_type(T data) : data(data) { }
+			inline constexpr version_view(T data) : data(data) { }
 		public:
-			inline constexpr version_type() : data(0) { }
-			inline constexpr version_type(handle hnd) : data(hnd.data) { }
+			inline constexpr version_view() : data(0) { }
+			inline constexpr version_view(handle hnd) : data(hnd.data) { }
 
 			inline constexpr operator integral_type() const { return data & version_mask; }
 			
-			inline constexpr version_type& operator++() { data += increment; return *this; }
-			inline constexpr version_type operator++(int) { auto tmp = *this; data += increment; return tmp; }
+			inline constexpr version_view& operator++() { data += increment; return *this; }
+			inline constexpr version_view operator++(int) { auto tmp = *this; data += increment; return tmp; }
 			
-			inline constexpr version_type& operator--() { data += increment; return *this; }
-			inline constexpr version_type operator--(int) { auto tmp = *this; data += increment; return tmp; }
+			inline constexpr version_view& operator--() { data -= increment; return *this; }
+			inline constexpr version_view operator--(int) { auto tmp = *this; data -= increment; return tmp; }
 			
-			inline constexpr bool operator==(version_type other) const 
-			{ 
+			inline constexpr bool operator==(version_view other) const { 
 				if constexpr (N == 0) return true;
 				else return !((data ^ other.data) & version_mask); 
 			}
-			inline constexpr bool operator!=(version_type other) const { 
+			inline constexpr bool operator!=(version_view other) const { 
 				if constexpr (N == 0) return false; 
 				return (data ^ other.data) & version_mask;
 			}
@@ -74,32 +97,31 @@ namespace ecs {
 		inline constexpr handle() : data(value_mask) { }
 		inline constexpr handle(tombstone) : data(value_mask) { }
 		
-		inline constexpr handle(value_type val) : data(val) { }
-		inline constexpr handle(value_type val, version_type vers) : data(static_cast<T>(val) | static_cast<T>(vers)) { }
+		inline constexpr handle(value_view val) : data(val) { }
+		inline constexpr handle(value_view val, version_view vers) : data((val.data & value_mask) | (vers & version_mask)) { }
 
 		inline constexpr explicit handle(T val) : data(val) { }
 		
 		inline constexpr operator T() const { return data; }
 
 		inline constexpr handle& operator=(tombstone) { data = value_mask; return *this; }
-		inline constexpr handle& operator=(value_type other) { data = version_type{ data } | other; return *this; }
-		inline constexpr handle& operator=(version_type other) { data = value_type{ data } | other; return *this; }
+		inline constexpr handle& operator=(value_view other) { data = version_view{ data } | other; return *this; }
+		inline constexpr handle& operator=(version_view other) { data = value_view{ data } | other; return *this; }
 
 		inline constexpr bool operator==(handle other) const { return other.data == data; }
 		inline constexpr bool operator!=(handle other) const { return other.data != data; }
 
-		inline constexpr bool operator==(version_type other) const { return  version_type(*this) == other; }
-		inline constexpr bool operator!=(version_type other) const { return  version_type(*this) != other; }
+		inline constexpr bool operator==(version_view other) const { return  version_view(*this) == other; }
+		inline constexpr bool operator!=(version_view other) const { return  version_view(*this) != other; }
 
-		inline constexpr bool operator==(tombstone other) const { return value_mask == value(*this); }
-		inline constexpr bool operator!=(tombstone other) const { return value_mask != value(*this); }
-	
+		inline constexpr bool operator==(tombstone other) const { return value_mask == value_view{ *this }; }
+		inline constexpr bool operator!=(tombstone other) const { return value_mask != value_view{ *this }; }
 	private:
 		T data;
 	};
 
 	struct entity { // type erased handle
-		using ecs_tag = ecs::tag::entity;
+		using ecs_tag_type = ecs::tag::entity;
 		
 		template<std::unsigned_integral T, std::size_t N>
 		entity(handle<T, N> handle) : data(static_cast<uint64_t>(handle.data)) { }
@@ -110,13 +132,12 @@ namespace ecs {
 
 		template<std::unsigned_integral T>
 		explicit operator T() const { return static_cast<T>(data); }
-
 	private:
 		uint64_t data;
 	};
 
-	template<typename T>
+	template<ecs::traits::event_class T>
 	struct event_entity {
-		using ecs_tag = tag::entity;
+		using ecs_tag_type = tag::entity;
 	};
 }

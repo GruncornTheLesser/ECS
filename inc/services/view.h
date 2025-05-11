@@ -1,5 +1,5 @@
 #pragma once
-#include "core/fwd.h"
+#include "core/traits.h"
 #include "util/view_element.h"
 #include "core/meta.h"
 
@@ -25,7 +25,7 @@ namespace ecs {
 	template<typename ... Ts>
 	struct select {
 		using const_type = select<const Ts...>;
-		using value_type = view_element<std::conditional_t<traits::is_entity_v<Ts> || traits::is_handle_v<Ts>, Ts, Ts&>...>;
+		using value_type = view_element<meta::eval_if_t<Ts, ecs::traits::is_entity, ecs::traits::entity::get_handle, std::add_lvalue_reference>...>;
 
 		template<typename reg_T, typename handle_T>
 		static inline value_type retrieve(reg_T* reg, std::size_t pos, handle_T ent) {
@@ -37,7 +37,7 @@ namespace ecs {
 			return reg->template get_resource<typename component_traits<T>::storage_type>()[pos];
 		}
 
-		template<typename T, typename reg_T> requires (ecs::traits::is_entity_v<T> || ecs::traits::is_handle_v<T>)
+		template<typename T, typename reg_T> requires (ecs::traits::is_entity_v<T>)
 		static inline T get(reg_T* reg, std::size_t pos, T ent) {
 			return ent;
 		}
@@ -48,7 +48,7 @@ namespace ecs {
 		using type = T;
 	};
 
-	template<typename ... Ts>
+	template<ecs::traits::component_class ... Ts>
 	struct inc {
 		template<typename reg_T, typename handle_T>
 		static inline bool valid(reg_T* reg, handle_T ent) {
@@ -56,7 +56,7 @@ namespace ecs {
 		}
 	};
 
-	template<typename ... Ts>
+	template<ecs::traits::component_class ... Ts>
 	struct exc {
 		template<typename reg_T, typename handle_T>
 		static inline bool valid(reg_T* reg, handle_T ent) {
