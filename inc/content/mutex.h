@@ -17,9 +17,9 @@ namespace ecs
 			std::unique_lock lk(mtx);
 			if (current != 0)
 			{
-				++exclusive_queue_count[static_cast<uint32_t>(p)];
-				exclusive_queue[static_cast<uint32_t>(p)].wait(lk);
-				--exclusive_queue_count[static_cast<uint32_t>(p)];
+				++exclusive_queue_count[static_cast<std::size_t>(p)];
+				exclusive_queue[static_cast<std::size_t>(p)].wait(lk);
+				--exclusive_queue_count[static_cast<std::size_t>(p)];
 			}
 			current = -1;
 		}
@@ -36,9 +36,9 @@ namespace ecs
 			std::unique_lock lk(mtx);
 			if (current != 0)
 			{
-				++shared_queue_count[static_cast<uint32_t>(p)];
+				++shared_queue_count[static_cast<std::size_t>(p)];
 				shared_queue.wait(lk);
-				--shared_queue_count[static_cast<uint32_t>(p)];
+				--shared_queue_count[static_cast<std::size_t>(p)];
 			}
 			++current;
 		}
@@ -71,9 +71,9 @@ namespace ecs
 		std::mutex mtx;
 		std::condition_variable shared_queue;
 		std::condition_variable exclusive_queue[3];
-		uint32_t exclusive_queue_count[3]{ 0,0,0 };
-		uint32_t shared_queue_count[3]{ 0,0,0 };
-		uint32_t current { 0 };
+		std::size_t exclusive_queue_count[3]{ 0,0,0 };
+		std::size_t shared_queue_count[3]{ 0,0,0 };
+		std::size_t current { 0 };
 	};
 
 	struct priority_mutex
@@ -84,9 +84,9 @@ namespace ecs
 			std::unique_lock lk(mtx);
 			if (current != 0)
 			{
-				++exclusive_queue_count[static_cast<uint32_t>(p)];
-				exclusive_queue[static_cast<uint32_t>(p)].wait(lk);
-				--exclusive_queue_count[static_cast<uint32_t>(p)];
+				++exclusive_queue_count[static_cast<std::size_t>(p)];
+				exclusive_queue[static_cast<std::size_t>(p)].wait(lk);
+				--exclusive_queue_count[static_cast<std::size_t>(p)];
 			}
 			current = -1;
 		}
@@ -113,7 +113,7 @@ namespace ecs
 
 		std::mutex mtx;
 		std::condition_variable exclusive_queue[3];
-		uint32_t exclusive_queue_count[3]{ 0,0,0 };
-		uint32_t current { 0 };
+		std::size_t exclusive_queue_count[3]{ 0,0,0 };
+		std::size_t current { 0 };
 	};
 }

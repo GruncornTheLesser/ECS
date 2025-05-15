@@ -5,8 +5,8 @@
 namespace ecs {
 	template<typename T>
 	struct entity_traits<T, tag::entity_dynamic> {
-		using handle_type = ecs::handle<ecs::traits::entity::get_handle_integral_t<T>, ecs::traits::entity::get_handle_version_width_v<T>>;
-		using factory_type = traits::entity::get_factory_t<T, factory<T>>;
+		using handle_type = ecs::handle<ecs::traits::entity::get_attrib_integral_t<T>, ecs::traits::entity::get_attrib_version_width_v<T>>;
+		using factory_type = traits::entity::get_attrib_factory_t<T, factory<T>>;
 
 		using resource_dependencies = std::tuple<factory_type>;
 		using component_dependencies = std::tuple<>;
@@ -15,8 +15,8 @@ namespace ecs {
 	
 	template<typename T, std::size_t N>
 	struct entity_traits<T, tag::entity_fixed<N>> {
-		using handle_type = ecs::handle<ecs::traits::entity::get_handle_integral_t<T>, ecs::traits::entity::get_handle_version_width_v<T>>;
-		using factory_type = traits::entity::get_factory_t<T, factory<T>>;
+		using handle_type = ecs::handle<ecs::traits::entity::get_attrib_integral_t<T>, ecs::traits::entity::get_attrib_version_width_v<T>>;
+		using factory_type = traits::entity::get_attrib_factory_t<T, factory<T>>;
 
 		using resource_dependencies = std::tuple<factory_type>;
 		using component_dependencies = std::tuple<>;

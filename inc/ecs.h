@@ -1,13 +1,12 @@
 #pragma once
-
-#include "content/resources.h"
-#include "content/events.h"
-#include "content/handles.h"
-#include "content/mutex.h"
-#include "content/components.h"
-#include "services/pool.h"
-#include "services/invoker.h"
-#include "services/generator.h"
-#include "services/view.h"
-#include "services/registry.h"
+#include "content/resources.h"  // IWYU pragma: export
+#include "content/events.h" // IWYU pragma: export
+#include "content/handles.h" // IWYU pragma: export
+#include "content/mutex.h" // IWYU pragma: export
+#include "content/components.h" // IWYU pragma: export
+#include "services/pool.h" // IWYU pragma: export
+#include "services/invoker.h" // IWYU pragma: export
+#include "services/generator.h" // IWYU pragma: export
+#include "services/view.h" // IWYU pragma: export
+#include "services/registry.h" // IWYU pragma: export
 

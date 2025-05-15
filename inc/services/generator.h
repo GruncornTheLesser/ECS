@@ -41,22 +41,26 @@ namespace ecs {
 			return hnd;
 		}
 		
-		constexpr void destroy(handle_type hnd) {
+		constexpr void destroy(handle_type ent) {
 			auto& fact = reg->template get_resource<factory_type>();
-
+			
 			// get handle value
-			integral_type pos = value_view{ hnd }; 
+			integral_type pos = value_view{ ent }; 
 			
 			// if not alive
-			if (fact.active[pos] != hnd) return; 
-			
+			if (fact.active[pos] != ent) return; 
+
 			// invoke destroy event
 			if constexpr (traits::is_accessible_v<event::destroy<entity_type>, reg_T>) {
-				reg->template on<event::destroy<entity_type>>().invoke(hnd);
+				reg->template on<event::destroy<entity_type>>().invoke(ent);
 			}
-
-			fact.active[pos] = handle_type{ fact.inactive, version_view{ hnd } };
-			fact.inactive = hnd;
+			
+			// immediate-mode
+			using entity_component_set = ecs::meta::filter_t<typename registry_type::component_set, traits::is_entity_match, T>;
+			ecs::meta::apply<entity_component_set>([&]<typename ... Ts>() { (reg->template pool<Ts>().erase(ent), ...); });
+			
+			fact.active[pos] = handle_type{ fact.inactive, version_view{ ent } };
+			fact.inactive = ent;
 		}
 
 		constexpr bool alive(handle_type hnd) {

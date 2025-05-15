@@ -1,77 +1,6 @@
 #pragma once
-#include <stdint.h>
+#include <cstddef>
 #include <concepts>
-
-#ifndef ECS_DEFAULT_TAG
-#define ECS_DEFAULT_TAG ecs::tag::component
-#endif
-
-#ifndef ECS_DEFAULT_COMPONENT_TAG
-#define ECS_DEFAULT_COMPONENT_TAG ecs::tag::component_basictype
-#endif
-
-#ifndef ECS_DEFAULT_RESOURCE_TAG
-#define ECS_DEFAULT_RESOURCE_TAG ecs::tag::resource_restricted
-#endif
-
-#ifndef ECS_DEFAULT_ENTITY_TAG
-#define ECS_DEFAULT_ENTITY_TAG ecs::tag::entity_dynamic
-#endif
-
-#ifndef ECS_DEFAULT_EVENT_TAG
-#define ECS_DEFAULT_EVENT_TAG ecs::tag::synced_event
-#endif
-
-#ifndef ECS_DEFAULT_HANDLE_INTEGRAL
-#define ECS_DEFAULT_HANDLE_INTEGRAL uint32_t
-#endif
-
-#ifndef ECS_DEFAULT_HANDLE_VERSION_WIDTH
-#define ECS_DEFAULT_HANDLE_VERSION_WIDTH 12
-#endif
-
-#ifndef ECS_DEFAULT_RESOURCE_MUTEX
-#define ECS_DEFAULT_RESOURCE_MUTEX null_mutex
-#endif
-
-#ifndef ECS_DEFAULT_INITIALIZE_EVENT
-#define ECS_DEFAULT_INITIALIZE_EVENT ecs::event::init<T>
-#endif
-
-#ifndef ECS_DEFAULT_TERMINATE_EVENT
-#define ECS_DEFAULT_TERMINATE_EVENT ecs::event::term<T>
-#endif
-
-#ifndef ECS_DEFAULT_PAGE_SIZE
-#define ECS_DEFAULT_PAGE_SIZE 4096
-#endif
-
-// standalone trait value macro declaration
-#define EXPAND(...) __VA_ARGS__
-
-#define DYNAMIC_TRAIT_TYPE(NAME, DEFAULT) 										\
-template<typename T, typename D=DEFAULT> 										\
-struct get_##NAME { using type = D; }; 											\
-template<typename T, typename D> requires requires { typename T::NAME##_type; }	\
-struct get_##NAME<T, D> { using type = typename T::NAME##_type; };	            \
-template<typename T, typename D=DEFAULT>										\
-using get_##NAME##_t = typename get_##NAME<T, D>::type;
-
-#define STATIC_TRAIT_TYPE(NAME, TRAIT)											\
-template<typename T>															\
-struct get_##NAME { using type = typename TRAIT##_traits<T>::NAME##_type; };	\
-template<typename T>															\
-using get_##NAME##_t = typename get_##NAME<T>::type;
-
-
-// standalone trait type macro declaration
-#define DYNAMIC_TRAIT_VALUE(TYPE, NAME, DEFAULT) 								\
-template<typename T, typename=void> 											\
-struct get_##NAME { static constexpr TYPE value = DEFAULT; };		 			\
-template<typename T, typename D> requires requires { T::Name; }					\
-struct get_##NAME<T, D> { static constexpr TYPE value = T::NAME; };				\
-template<typename T>															\
-static constexpr TYPE get_##NAME##_v = get_##NAME<T>::value;
 
 // tags
 namespace ecs::tag {
@@ -92,10 +21,6 @@ namespace ecs::tag {
 	
 	struct event { };
 	struct synced_event : event { };
-}
-
-namespace ecs::traits {
-	DYNAMIC_TRAIT_TYPE(ecs_tag, ECS_DEFAULT_TAG)
 }
 
 namespace ecs::traits {
@@ -127,7 +52,26 @@ namespace ecs::traits {
 	template<typename ... Ts> struct get_component_dependencies;
 	template<typename ... Ts> using get_component_dependencies_t = typename get_component_dependencies<Ts...>::type;
 
-	template<typename ... Ts> struct view_builder;
+	template<typename, typename=void, typename=void> struct view_builder;
+
+	template<typename T> struct is_data_component;
+	template<typename T> static constexpr bool is_empty_component_v = is_data_component<T>::value;
+
+
+	template<typename T, typename manager_T> struct is_manager_match;
+	template<typename T, typename manager_T> static constexpr bool is_manager_match_v = is_manager_match<T, manager_T>::value;
+
+	template<typename T, typename indexer_T> struct is_indexer_match;
+	template<typename T, typename indexer_T> static constexpr bool is_indexer_match_v = is_indexer_match<T, indexer_T>::value;
+
+	template<typename T, typename storage_T> struct is_storage_match;
+	template<typename T, typename storage_T> static constexpr bool is_storage_match_v = is_storage_match<T, storage_T>::value;
+
+	template<typename T, typename entity_T>  struct is_entity_match;
+	template<typename T, typename entity_T>  static constexpr bool is_entity_match_v = is_entity_match<T, entity_T>::value;
+
+	template<typename T, typename U> struct is_const_accessible;
+	template<typename T, typename U> static constexpr bool is_const_accessible_v = is_const_accessible<T, U>::value;
 
 	template<typename T, typename reg_T> struct is_accessible;	
 	template<typename T, typename reg_T> static constexpr bool is_accessible_v = is_accessible<T, reg_T>::value;
@@ -135,7 +79,9 @@ namespace ecs::traits {
 
 // fwd
 namespace ecs {	
-	template<ecs::traits::resource_class Res_T, typename Mut_T> struct cache;
+	struct null_member { };
+
+	template<ecs::traits::resource_class Res_T> struct cache;
 	template<typename ... Ts> class registry;
 
 	// entities
@@ -159,7 +105,7 @@ namespace ecs {
 	template<ecs::traits::component_class T> struct storage;
 	
 	// component
-	template<ecs::traits::event_class T> struct listener;
+	template<ecs::traits::event_class T, typename callback_T> struct listener;
 
 	// events
 	namespace event {
@@ -181,14 +127,13 @@ namespace ecs {
 	template<typename select_T, typename from_T, typename where_T, typename reg_T> class view;
 
 	// iterators
-	template<ecs::traits::component_class T, typename reg_T> struct pool_iterator;
 	template<typename select_T, typename from_T, typename where_T, typename reg_T> struct view_iterator;
 	struct view_sentinel;
 	
 	// view decorators
-	template<typename ... Ts> struct select;
-	template<typename T>      struct from;
-	template<typename ... Ts> struct where;
+	template<typename ... Ts> requires ((traits::is_entity_v<Ts> || traits::is_component_v<Ts>) && ...) struct select { };
+	template<traits::component_class T> struct from { };
+	template<typename ... Ts> struct where { };
 	template<ecs::traits::component_class ... Ts> struct inc;
 	template<ecs::traits::component_class ... Ts> struct exc;
 }

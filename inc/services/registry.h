@@ -7,41 +7,44 @@ services: pool, view, generator
 */
 
 namespace ecs {
-	template<ecs::traits::resource_class Res_T, typename Mut_T>
+	template<ecs::traits::resource_class T>
 	struct cache { 
-		template<typename Reg_T> requires(std::is_constructible_v<Res_T, Reg_T&>)
+		using value_type = ecs::traits::resource::get_value_t<T>;
+		using mutex_type = ecs::traits::resource::get_mutex_t<T>;
+
+		template<typename Reg_T> requires(std::is_constructible_v<value_type, Reg_T&>)
 		cache(Reg_T& reg) : resource(reg) { }
 
-		template<typename Reg_T> requires(!std::is_constructible_v<Res_T, Reg_T&>)
+		template<typename Reg_T> requires(!std::is_constructible_v<value_type, Reg_T&>)
 		cache(Reg_T& reg) : resource() { }
 
 		void lock() { 
-			if constexpr (std::is_void_v<decltype(std::declval<Mut_T>().lock())>) {
+			if constexpr (std::is_void_v<decltype(std::declval<mutex_type>().lock())>) {
 				mutex.lock();
 			}
 		}
 		void lock() const { 
-			if constexpr (std::is_void_v<decltype(std::declval<Mut_T>().shared_lock())>) {
+			if constexpr (std::is_void_v<decltype(std::declval<mutex_type>().shared_lock())>) {
 				mutex.shared_lock();
-			} else if constexpr (std::is_void_v<decltype(std::declval<Mut_T>().lock())>) {
+			} else if constexpr (std::is_void_v<decltype(std::declval<mutex_type>().lock())>) {
 				mutex.lock();
 			}
 		}
 		void unlock() { 
-			if constexpr (std::is_void_v<decltype(std::declval<Mut_T>().lock())>) {
+			if constexpr (std::is_void_v<decltype(std::declval<mutex_type>().lock())>) {
 				mutex.unlock();
 			}
 		}
 		void unlock() const {
-			if constexpr (std::is_void_v<decltype(std::declval<Mut_T>().shared_unlock())>) {
+			if constexpr (std::is_void_v<decltype(std::declval<mutex_type>().shared_unlock())>) {
 				mutex.shared_unlock();
-			} else if constexpr (std::is_void_v<decltype(std::declval<Mut_T>().unlock())>) {
+			} else if constexpr (std::is_void_v<decltype(std::declval<mutex_type>().unlock())>) {
 				mutex.unlock();
 			}
 		}
 
-		Res_T resource; 
-		[[no_unique_address]] Mut_T mutex;
+		[[no_unique_address]] value_type resource;
+		[[no_unique_address]] mutex_type mutex;
 	};
 
 
@@ -51,7 +54,7 @@ namespace ecs {
 		using resource_set = traits::get_resource_dependencies_t<Ts...>;
 		using entity_set = traits::get_entity_dependencies_t<Ts...>;
 		using component_set = traits::get_component_dependencies_t<Ts...>;
-		using resource_cache = meta::each_t<resource_set, traits::resource::get_cache>;
+		using resource_cache = meta::eval_each_t<resource_set, traits::resource::get_cache>;
 	
 	public:
 		registry() {
@@ -89,12 +92,12 @@ namespace ecs {
 		}
 
 		template<traits::resource_class T> requires(traits::is_accessible_v<T, registry<Ts...>>)
-		inline T& get_resource() {
+		inline ecs::traits::resource::get_value_t<T>& get_resource() {
 			return get_cache<T>().resource;
 		}
 
 		template<traits::resource_class T> requires(traits::is_accessible_v<T, registry<Ts...>>)
-		inline const T& get_resource() const {
+		inline const ecs::traits::resource::get_value_t<T>& get_resource() const {
 			return get_cache<T>().resource;
 		}
 
