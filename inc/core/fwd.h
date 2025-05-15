@@ -79,8 +79,6 @@ namespace ecs::traits {
 
 // fwd
 namespace ecs {	
-	struct null_member { };
-
 	template<ecs::traits::resource_class Res_T> struct cache;
 	template<typename ... Ts> class registry;
 

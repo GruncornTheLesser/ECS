@@ -20,7 +20,7 @@ namespace ecs {
 	template<typename T, typename ... Ts>
 	struct component_traits<T, tag::component_archetype<Ts...>> {
 	private:
-		using primary_type = meta::min_by_t<std::tuple<Ts...>, meta::get_type_name>;
+		using primary_type = util::find_min_t<std::tuple<Ts...>, util::get_type_name>;
 	public:
 		using value_type = traits::component::get_attrib_value_t<T>;
 		using entity_type = traits::component::get_attrib_entity_t<primary_type>;
@@ -40,7 +40,7 @@ namespace ecs {
 	template<typename T, typename ... Ts>
 	struct component_traits<T, tag::component_uniontype<Ts...>> {
 	private:
-		using primary_type = meta::sort_by_t<std::variant<Ts...>, meta::get_type_name>;
+		using primary_type = util::find_min_t<std::tuple<Ts...>, util::get_type_name>;
 	public:
 		using value_type = traits::component::get_attrib_value_t<T, std::variant<Ts...>>;
 		using entity_type = traits::component::get_attrib_entity_t<T>;

@@ -1,8 +1,8 @@
 #pragma once
 #include "core/fwd.h"
 #include "core/macros.h"
-#include "core/meta.h"
-
+#include <util.h>
+#include <tuple>
 
 namespace ecs::traits {
 	ATTRIB_TYPE(ecs_tag, ECS_DEFAULT_TAG)
@@ -86,29 +86,32 @@ namespace ecs::traits::component {
 
 // dependencies
 namespace ecs::traits {
-	template<typename ... Ts> struct get_resource_dependencies { 
-		using type = meta::remove_if_t<meta::unique_t<meta::concat_t<typename get_traits_t<Ts>::resource_dependencies...>>, std::is_void>;
+	template<typename ... Ts> struct get_resource_dependencies {
+		using type = util::eval_t<std::tuple<typename get_traits_t<Ts>::resource_dependencies...>,
+			util::concat, util::unique_<>::template type, util::filter_<std::is_void>::template inv>;
 	};
 	template<typename ... Ts> struct get_entity_dependencies { 
-		using type = meta::unique_t<meta::remove_if_t<meta::concat_t<typename get_traits_t<Ts>::entity_dependencies...>, std::is_void>>;
+		using type = util::eval_t<std::tuple<typename get_traits_t<Ts>::entity_dependencies...>, 
+			util::concat, util::unique_<>::template type, util::filter_<std::is_void>::template inv>;
 	};
 	template<typename ... Ts> struct get_component_dependencies { 
-		using type = meta::unique_t<meta::remove_if_t<meta::concat_t<typename get_traits_t<Ts>::component_dependencies...>, std::is_void>>;
+		using type = util::eval_t<std::tuple<typename get_traits_t<Ts>::component_dependencies...>, 
+			util::concat, util::unique_<>::template type, util::filter_<std::is_void>::template inv>;
 	};
 }
 
 namespace ecs::traits {
-	template<typename T> struct is_data_component : std::negation<std::is_void<meta::eval_try_t<T, traits::component::get_storage>>> { };
+	template<typename T> struct is_data_component : std::negation<std::is_void<util::eval_try_t<T, traits::component::get_storage>>> { };
 
-	template<typename T, typename manager_T> struct is_manager_match : std::is_same<meta::eval_try_t<T, traits::component::get_manager>, manager_T> { };
-	template<typename T, typename indexer_T> struct is_indexer_match : std::is_same<meta::eval_try_t<T, traits::component::get_indexer>, indexer_T> { };
-	template<typename T, typename storage_T> struct is_storage_match : std::is_same<meta::eval_try_t<T, traits::component::get_storage>, storage_T> { };
-	template<typename T, typename entity_T>  struct is_entity_match  : std::is_same<meta::eval_try_t<T, traits::component::get_entity>,  entity_T>  { };
+	template<typename T, typename manager_T> struct is_manager_match : std::is_same<util::eval_try_t<T, traits::component::get_manager>, manager_T> { };
+	template<typename T, typename indexer_T> struct is_indexer_match : std::is_same<util::eval_try_t<T, traits::component::get_indexer>, indexer_T> { };
+	template<typename T, typename storage_T> struct is_storage_match : std::is_same<util::eval_try_t<T, traits::component::get_storage>, storage_T> { };
+	template<typename T, typename entity_T>  struct is_entity_match  : std::is_same<util::eval_try_t<T, traits::component::get_entity>,  entity_T>  { };
 	
 	template<typename T, typename U> struct is_const_accessible : std::disjunction<std::is_void<T>, std::is_same<T, U>, std::is_same<T, const U>> { };
 
-	template<typename T, typename reg_T> struct is_accessible : meta::conjunction<ecs::traits::get_resource_dependencies_t<T>, is_accessible, reg_T> { };
-	template<resource_class T, typename reg_T> struct is_accessible<T, reg_T> : meta::disjunction<typename reg_T::resource_set, is_const_accessible, T> { };
+	template<typename T, typename reg_T> struct is_accessible : util::pred::allof<ecs::traits::get_resource_dependencies_t<T>, util::pred_<is_accessible, reg_T>::template type> { };
+	template<resource_class T, typename reg_T> struct is_accessible<T, reg_T> : util::pred::anyof<typename reg_T::resource_set, util::pred_<is_const_accessible, T>::template type> { };
 }
 
 // concepts definitions

@@ -54,24 +54,24 @@ namespace ecs {
 		using resource_set = traits::get_resource_dependencies_t<Ts...>;
 		using entity_set = traits::get_entity_dependencies_t<Ts...>;
 		using component_set = traits::get_component_dependencies_t<Ts...>;
-		using resource_cache = meta::eval_each_t<resource_set, traits::resource::get_cache>;
+		using resource_cache = util::eval_each_t<resource_set, traits::resource::get_cache>;
 	
 	public:
 		registry() {
-			using init_priority = meta::sort_by_t<resource_set, traits::resource::get_init_priority>;
-			meta::apply<init_priority>([&]<typename ... res_Ts>(){ 
+			using init_priority = util::sort_by_t<resource_set, traits::resource::get_init_priority>;
+			util::apply<init_priority>([&]<typename ... res_Ts>(){ 
 				(std::construct_at(&get_cache<res_Ts>(), *this), ...);
 			});
 		}
 		~registry() {
-			meta::apply<component_set>([&]<typename ... comp_Ts>(){ 
+			util::apply<component_set>([&]<typename ... comp_Ts>(){ 
 				(pool<comp_Ts>().clear(), ...); 
 			});
-			meta::apply<entity_set>([&]<typename ... ent_Ts>(){ 
+			util::apply<entity_set>([&]<typename ... ent_Ts>(){ 
 				(generator<ent_Ts>().clear(), ...);
 			});
-			using term_priority = meta::reverse_t<meta::sort_by_t<resource_set, traits::resource::get_init_priority>>;
-			meta::apply<term_priority>([&]<typename ... res_Ts>(){ 
+			using term_priority = util::reverse_t<util::sort_by_t<resource_set, traits::resource::get_init_priority>>;
+			util::apply<term_priority>([&]<typename ... res_Ts>(){ 
 				(std::destroy_at(&get_resource<res_Ts>()), ...);
 			});
 		}
@@ -135,7 +135,7 @@ namespace ecs {
 		template<typename ... Us, 
 			typename from_T=typename traits::view_builder<select<Us...>>::from_type, 
 			typename where_T=typename traits::view_builder<select<Us...>, from_T>::where_type>
-		requires(meta::conjunction_v<traits::get_resource_dependencies_t<Us...>, ecs::traits::is_accessible, ecs::registry<Ts...>>)
+		requires(util::pred::allof_v<traits::get_resource_dependencies_t<Us...>, util::pred_<ecs::traits::is_accessible, ecs::registry<Ts...>>::template type>)
 		inline ecs::view<ecs::select<Us...>, from_T, where_T, ecs::registry<Ts...>>
 		view(from_T from={}, where_T where={}) {
 			 return this;
@@ -144,7 +144,7 @@ namespace ecs {
 		template<typename ... Us, 
 			typename from_T=typename traits::view_builder<select<Us...>>::from_type, 
 			typename where_T=typename traits::view_builder<select<Us...>, from_T>::where_type>
-		requires(meta::conjunction_v<traits::get_resource_dependencies_t<Us...>, ecs::traits::is_accessible, ecs::registry<Ts...>>)
+			requires(util::pred::allof_v<traits::get_resource_dependencies_t<Us...>, util::pred_<ecs::traits::is_accessible, ecs::registry<Ts...>>::template type>)
 		inline ecs::view<ecs::select<const Us...>, from_T, where_T, const ecs::registry<Ts...>>
 		view(from_T from={}, where_T where={}) const {
 			return this;
@@ -216,16 +216,16 @@ namespace ecs {
 
 		template<typename ... Us> requires((traits::is_accessible_v<Us, registry<Ts...>> && ...))
 		void acquire(priority p = priority::MEDIUM) {
-			meta::apply<meta::sort_by_t<traits::get_resource_dependencies_t<Us...>, 
-				traits::resource::get_lock_priority, meta::get_type_name>>([&]<typename ... Res_Ts>{ 
+			util::apply<util::sort_by_t<traits::get_resource_dependencies_t<Us...>, 
+				traits::resource::get_lock_priority, util::get_type_name>>([&]<typename ... Res_Ts>{ 
 				(get_cache<Res_Ts>().lock(), ...); 
 			});
 		}
 
 		template<typename ... Us> requires((traits::is_accessible_v<Us, registry<Ts...>> && ...))
 		void release() {
-			meta::apply<meta::reverse_t<meta::sort_by_t<traits::get_resource_dependencies_t<Us...>, 
-				traits::resource::get_lock_priority, meta::get_type_name>>>([&]<typename ... Res_Ts>{
+			util::apply<util::reverse_t<util::sort_by_t<traits::get_resource_dependencies_t<Us...>, 
+				traits::resource::get_lock_priority, util::get_type_name>>>([&]<typename ... Res_Ts>{
 				(get_cache<Res_Ts>().unlock(), ...); 
 			});
 		}

@@ -47,9 +47,12 @@ namespace ecs::meta {
 	/**
 	 * @brief allows the passing of arguments to variadic templates.
 	 */
-	template<template<typename ...> typename Tp, typename ... Arg_Ts> struct arg_append { template<typename ... Ts> using type = typename Tp<Ts..., Arg_Ts...>::type; };
-
-
+	template<typename T, typename ... Ts> struct arg_append;
+	template<typename ... Ts> struct arg_append_ { template<typename T> using type = arg_append<T, Ts...>; };
+	template<typename T, typename ... Ts> using arg_append_t = typename arg_append<T, Ts...>::type;
+	/**
+	 * @brief 
+	 */
 	template<typename T, template<typename...> typename ... Eval_Tps> struct eval;
 	template<template<typename...> typename ... Eval_Tps> struct eval_ { template<typename T> using type = eval<T, Eval_Tps...>; };
 	template<typename T, template<typename...> typename ... Eval_Tps> using eval_t = typename eval<T, Eval_Tps...>::type;
@@ -60,7 +63,9 @@ namespace ecs::meta {
 	template<typename T, template<typename...> typename Pred_Tp, template<typename...> typename If_Tp, template<typename...> typename Else_Tp=std::type_identity> struct eval_if;
 	template<template<typename...> typename Pred_Tp, template<typename...> typename If_Tp, template<typename...> typename Else_Tp=std::type_identity> struct eval_if_{ template<typename T> using type = eval_if<T, Pred_Tp, If_Tp, Else_Tp>; };
 	template<typename T, template<typename...> typename Pred_Tp, template<typename...> typename If_Tp, template<typename...> typename Else_Tp=std::type_identity> using eval_if_t = typename eval_if<T, Pred_Tp, If_Tp, Else_Tp>::type;
-
+	/**
+	 * @brief 
+	 */
 	template<typename T, template<typename...> typename Pred_Tp, template<typename...> typename If_Tp, template<typename...> typename Else_Tp, template<typename...> typename ... Eval_Tps> using eval_pre_if = eval_if<T, Pred_Tp, eval_<Eval_Tps..., If_Tp>::template type, eval_<Eval_Tps..., Else_Tp>::template type>;
 	template<template<typename...> typename Pred_Tp, template<typename...> typename If_Tp, template<typename...> typename Else_Tp, template<typename...> typename ... Eval_Tps> struct eval_pre_if_{ template<typename T> using type = eval_pre_if<T, Pred_Tp, If_Tp, Else_Tp, Eval_Tps...>; };
 	template<typename T, template<typename...> typename Pred_Tp, template<typename...> typename If_Tp, template<typename...> typename Else_Tp, template<typename...> typename ... Eval_Tps> using eval_pre_if_t = typename eval_pre_if<T, Pred_Tp, If_Tp, Else_Tp, Eval_Tps...>::type;
@@ -88,9 +93,6 @@ namespace ecs::meta {
 
 	/**
 	 * @brief template meta program to conjuct tuple elements with set
-	 * @tparam Tup tuple of types to conjunct
-	 * @tparam Same_Tp a is same compare template struct, takes 2 template arguments eg std::is_same 
-	 * @tparam Ts arguments to pass to 
 	 */
 	template<typename Tup, template<typename...> typename Pred_Tp, typename ... Arg_Ts> struct conjunction;
 	template<template<typename...> typename Pred_Tp> struct conjunction_ { template<typename Tup, typename ... Arg_Ts> using type = conjunction<Tup, Pred_Tp, Arg_Ts...>; };
@@ -98,9 +100,6 @@ namespace ecs::meta {
 	
 	/**
 	 * @brief template meta program to disjunct tuple elements 
-	 * @tparam Tup 
-	 * @tparam Same_Tp 
-	 * @tparam Ts 
 	 */
 	template<typename Tup, template<typename...> typename Pred_Tp, typename ... Ts> struct disjunction;
 	template<template<typename...> typename Pred_Tp> struct disjunction_ { template<typename Tup, typename ... Arg_Ts> using type = disjunction<Tup, Pred_Tp, Arg_Ts...>; };
@@ -125,9 +124,6 @@ namespace ecs::meta {
 	namespace details { template<typename Out, typename Tup, template<typename...> typename Same_Tp, typename ... Arg_Ts> struct unique; };
 	/**
 	 * @brief removes duplicate types in Tup
-	 * @tparam Tup the set of types
-	 * @tparam Same_Tp compare function between types
-	 * @tparam Arg_Ts optional argument types to pass to the compare template struct
 	 */
 	template<typename Tup, template<typename...> typename Same_Tp=std::is_same, typename ... Arg_Ts> using unique = details::unique<std::tuple<>, Tup, Same_Tp, Arg_Ts...>;
 	template<template<typename...> typename Same_Tp=std::is_same, typename ... Arg_Ts> struct unique_ { template<typename Tup> using type = unique<Tup, Same_Tp, Arg_Ts...>; };
@@ -136,9 +132,6 @@ namespace ecs::meta {
 	namespace details { template<typename Out, typename Tup, template<typename...> typename Pred_Tp, typename ... Arg_Ts> struct filter; };
 	/**
 	 * @brief removes types that do not match the predicate template struct 
-	 * @tparam Tup the set of types 
-	 * @tparam Pred_Tp the predicate template struct
-	 * @tparam Arg_Ts optional argument types to pass to the predicate template struct
 	 */
 	template<typename Tup, template<typename...> typename Pred_Tp, typename ... Arg_Ts> using filter = details::filter<std::tuple<>, Tup, Pred_Tp, Arg_Ts...>;
 	template<template<typename...> typename Pred_Tp, typename ... Arg_Ts> struct filter_ { template<typename Tup> using type = filter<Tup, Pred_Tp, Arg_Ts...>; };
@@ -147,9 +140,6 @@ namespace ecs::meta {
 	namespace details { template<typename Out, typename Tup, template<typename...> typename Pred_Tp, typename ... Arg_Ts> struct remove_if; };
 	/**
 	 * @brief removes types that match the predicate template struct 
-	 * @tparam Tup the set of types 
-	 * @tparam Pred_Tp the predicate template struct
-	 * @tparam Arg_Ts optional argument types to pass to the predicate template struct
 	 */
 	template<typename Tup, template<typename...> typename Pred_Tp, typename ... Arg_Ts> using remove_if = details::remove_if<std::tuple<>, Tup, Pred_Tp, Arg_Ts...>;
 	template<template<typename...> typename Pred_Tp, typename ... Arg_Ts> struct remove_if_ { template<typename Tup> using type = remove_if<Tup, Pred_Tp, Arg_Ts...>; };
@@ -157,9 +147,6 @@ namespace ecs::meta {
 
 	/**
 	 * @brief finds first type/index that match the predicate template struct 
-	 * @tparam Tup the set of types
-	 * @tparam Pred_Tp the predicate template struct
-	 * @tparam Arg_Ts optional argument types to pass to the predicate template struct
 	 */
 	template<typename Tup, template<typename...> typename Pred_Tp, typename ... Arg_Ts> struct find_if;
 	template<template<typename...> typename Pred_Tp, typename ... Arg_Ts> struct find_if_ { template<typename Tup> using type = find_if<Tup, Pred_Tp, Arg_Ts...>; };
@@ -170,9 +157,6 @@ namespace ecs::meta {
 
 	/**
 	 * @brief sorts a tuple by a value getter template struct
-	 * @tparam Tup the set of types
-	 * @tparam Eval_Tp the getter template struct
-	 * @tparam Arg_Ts optional argument types to pass to the getter template struct 
 	 */
 	template<typename Tup, template<typename> typename ... Eval_Tps> using sort_by = details::sort_by<Tup, std::make_index_sequence<arg_count_v<Tup>>, Eval_Tps...>;
 	template<template<typename> typename ... Eval_Tps> struct sort_by_ { template<typename Tup> using type = sort_by<Tup, Eval_Tps...>; };
@@ -182,9 +166,6 @@ namespace ecs::meta {
 	
 	/**
 	 * @brief finds a type by the minimum value evaluated from the getter template struct
-	 * @tparam Tup the set of types
-	 * @tparam Eval_Tp the getter template struct
-	 * @tparam Arg_Ts optional argument types to pass to the getter template struct
 	 */
 	template<typename Tup, template<typename...> typename Eval_Tp=get_type_name, typename ... Arg_Ts> using min_by = details::min_by<Tup, Eval_Tp, std::make_index_sequence<arg_count_v<Tup>>, Arg_Ts...>;
 	template<template<typename...> typename Eval_Tp=get_type_name, typename ... Arg_Ts> struct min_by_ { template<typename Tup> using type = min_by<Tup, Eval_Tp, Arg_Ts...>; };
@@ -194,9 +175,6 @@ namespace ecs::meta {
 
 	/**
 	 * @brief finfs a type by the maximum value evaluated from the getter template struct 
-	 * @tparam Tup the set of types
-	 * @tparam Eval_Tp the getter template struct
-	 * @tparam Arg_Ts optional argument types to pass to the getter template struct
 	 */
 	template<typename Tup, template<typename...> typename Eval_Tp=get_type_name, typename ... Arg_Ts> using max_by = details::max_by<Tup, Eval_Tp, std::make_index_sequence<arg_count_v<Tup>>, Arg_Ts...>;
 	template<template<typename...> typename Eval_Tp=get_type_name, typename ... Arg_Ts> struct max_by_ { template<typename Tup> using type = max_by<Tup, Eval_Tp, Arg_Ts...>; };
@@ -210,9 +188,6 @@ namespace ecs::meta {
 
 	/**
 	 * @brief invoke callable object func with the template arguments from Tup, differs from std::apply, by not requiring tuple value
-	 * @tparam Tup tuple elements to be used as template arguments in func
-	 * @param func a template function, taking template arguments Ts... eg [&]<typename ... Ts>{ } 
-	 * @return constexpr decltype(auto) return value from func
 	 */
 	template<typename Tup, typename Func_T, typename ... Arg_Ts> 
 	inline constexpr decltype(auto) apply(Func_T&& func, Arg_Ts&& ... args);
@@ -224,9 +199,6 @@ namespace ecs::meta {
 
 	/**
 	 * @brief TODO: THIS DOESNT MATCH THE SYNTAX/FORMAT OF THE OTHER META FUNCS
-	 * 
-	 * @tparam T 
-	 * @tparam Tp 
 	 */
 	template<typename T, template<typename...> typename Tp> struct wrap { using type = Tp<T>; };
 	template<template<typename...> typename Tp> struct wrap_ { template<typename T> using type = wrap<T, Tp>; };
@@ -257,8 +229,17 @@ namespace ecs::meta {
 	template<template<typename ...> typename ... Pred_Tp> struct all_of { template<typename ... Ts> using type = std::conjunction<Pred_Tp<Ts...>...>; };
 
 	template<template<typename ...> typename Pred_Tp, template<typename ...> typename ... Eval_Tps> struct pred { 
-		template<typename T, typename ... Arg_Ts> using type = Pred_Tp<eval_t<T, Eval_Tps...>, Arg_Ts...>; 
+		template<typename T, typename ... Arg_Ts> using type = Pred_Tp<eval_t<T, Eval_Tps...>, Arg_Ts...>;
 	};
+
+	namespace cmp {
+		template<typename T1, typename T2> struct lt { static constexpr bool value = T1::value < T2::value; };
+		template<typename T1, typename T2> struct lteq { static constexpr bool value = T1::value <= T2::value; };
+		template<typename T1, typename T2> struct gt { static constexpr bool value = T1::value > T2::value; };
+		template<typename T1, typename T2> struct gteq { static constexpr bool value = T1::value >= T2::value; };
+		template<typename T1, typename T2> struct eq { static constexpr bool value = T1::value == T2::value; };
+		template<typename T1, typename T2> struct neq { static constexpr bool value = T1::value != T2::value; };
+	}
 }
 
 namespace ecs::meta {
@@ -270,6 +251,10 @@ namespace ecs::meta {
 
 	template<template<typename...> typename Tp, typename T, typename ... Ts>
 	struct arg_element<0, Tp<T, Ts...>> { using type = T; };
+
+	template<template<typename ...> typename Tp, typename ... Ts, typename ... Arg_Ts> struct arg_append<Tp<Ts...>, Arg_Ts...> { 
+		using type = Tp<Arg_Ts..., Ts...>; 
+	};
 
 	template<typename T, template<typename...> typename Eval_Tp, template<typename...> typename ... Eval_Tps>
 	struct eval<T, Eval_Tp, Eval_Tps...> { using type = eval_t<typename Eval_Tp<T>::type, Eval_Tps...>; };
@@ -314,7 +299,9 @@ namespace ecs::meta {
 
 	namespace details {
 		template<template<typename ...> typename Tp, typename ... Ts, size_t ... Is>
-		struct reverse<Tp<Ts...>, std::index_sequence<Is...>> { using type = Tp<arg_element_t<sizeof...(Ts) - Is - 1, Tp<Ts...>>...>; };
+		struct reverse<Tp<Ts...>, std::index_sequence<Is...>> { 
+			using type = Tp<arg_element_t<sizeof...(Ts) - Is - 1, Tp<Ts...>>...>; 
+		};
 	}
 
 

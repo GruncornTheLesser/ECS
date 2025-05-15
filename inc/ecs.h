@@ -9,4 +9,3 @@
 #include "services/generator.h" // IWYU pragma: export
 #include "services/view.h" // IWYU pragma: export
 #include "services/registry.h" // IWYU pragma: export
-

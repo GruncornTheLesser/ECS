@@ -56,8 +56,8 @@ namespace ecs {
 			}
 			
 			// immediate-mode
-			using entity_component_set = ecs::meta::filter_t<typename registry_type::component_set, traits::is_entity_match, T>;
-			ecs::meta::apply<entity_component_set>([&]<typename ... Ts>() { (reg->template pool<Ts>().erase(ent), ...); });
+			using entity_component_set = util::filter_t<typename registry_type::component_set, util::pred_<traits::is_entity_match, T>::template type>;
+			util::apply<entity_component_set>([&]<typename ... Ts>() { (reg->template pool<Ts>().erase(ent), ...); });
 			
 			fact.active[pos] = handle_type{ fact.inactive, version_view{ ent } };
 			fact.inactive = ent;

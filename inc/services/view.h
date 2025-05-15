@@ -1,6 +1,6 @@
 #pragma once
 #include "core/traits.h"
-#include "core/meta.h"
+#include <util.h>
 
 namespace ecs {
 	namespace traits {
@@ -8,7 +8,7 @@ namespace ecs {
 		struct view_builder<select<select_Ts...>>
 		{
 			using select_type = select<select_Ts...>;
-			using from_type = from<meta::find_if_t<std::tuple<select_Ts...>, is_component>>;
+			using from_type = from<util::find_t<std::tuple<select_Ts...>, is_component>>;
 			using where_type = typename view_builder<select_type, from_type>::where_type;
 		};
 
@@ -17,10 +17,11 @@ namespace ecs {
 		{
 			using select_type = select<select_Ts...>;
 			using from_type = from<from_T>;
-			using where_type = meta::eval_t<select_type, 
-				meta::filter_<traits::is_component>::template type, 
-				meta::remove_if_<meta::pred<std::is_same, traits::component::get_manager>::template type, traits::component::get_manager_t<from_T>>::template type, 
-				meta::rewrap_<inc>::template type>;
+			using where_type = 
+				util::eval_t<select_type, 
+				util::filter_<traits::is_component>::template type, 
+				util::filter_<util::cmp::to_<from_T, util::cmp::attrib_<traits::component::get_manager>::template type>::template type>::template inv, 
+				util::rewrap_<inc>::template type>;
 		};
 	}
 
@@ -42,26 +43,27 @@ namespace ecs {
 }
 
 
+
 namespace ecs {
 	template<typename select_T, typename from_T, typename where_T, typename reg_T>
 	class view_iterator {
-	public:
+	private:
 		using view_type = view<select_T, from_T, where_T, reg_T>;
-		using from_type = meta::unwrap_t<from_T>;
+		using from_type = util::unwrap_t<from_T>;
 		using entity_type = traits::component::get_entity_t<from_type>;
 		using handle_type = traits::entity::get_handle_t<entity_type>;
 		using manager_type = traits::component::get_manager_t<from_type>;
-		using retrieve_set = meta::filter_t<select_T, meta::any_of<traits::is_entity, traits::is_data_component>::template type>;
+		using retrieve_set = util::filter_t<select_T, util::pred::disj_<traits::is_entity, traits::is_data_component>::template type>;
 	public:	
 		using iterator_category = std::bidirectional_iterator_tag;
 		using difference_type = std::ptrdiff_t;
 		using sentinel_type = view_sentinel;
-		using value_type = meta::eval_t<retrieve_set, 
-			meta::eval_each_<meta::eval_if_<traits::is_entity, 
-				meta::eval_<traits::entity::get_handle>::template type,
-				meta::eval_<traits::component::get_value, std::add_lvalue_reference>::template type
+		using value_type = util::eval_t<retrieve_set, 
+			util::eval_each_<util::eval_if_<traits::is_entity, 
+				util::eval_<traits::entity::get_handle>::template type,
+				util::eval_<traits::component::get_value, std::add_lvalue_reference>::template type
 			>::template type>::template type, 
-			meta::rewrap_<std::tuple>::template type>;
+			util::rewrap_<std::tuple>::template type>;
 		
 		view_iterator() : reg(nullptr), pos(-1), ent() { }
 		view_iterator(reg_T* reg, std::size_t pos) : reg(reg), pos(pos), ent() { }
@@ -71,7 +73,7 @@ namespace ecs {
 		view_iterator& operator=(view_iterator&& other) { reg = other.reg; pos = other.pos; ent = other.ent; }
 
 		constexpr value_type operator*() const { 
-			return meta::apply_each<retrieve_set, value_type>([&]<typename T>->decltype(auto) { 
+			return util::apply_each<retrieve_set, value_type>([&]<typename T>->decltype(auto) { 
 				if constexpr (traits::is_entity_v<T>) {
 					auto& manager = reg->template get_resource<traits::component::get_manager_t<from_type>>();
 					return manager.at(pos);
@@ -117,7 +119,7 @@ namespace ecs {
 
 	private:
 		bool valid() {
-			return meta::apply<where_T>([&]<typename ... where_Ts>{ 
+			return util::apply<where_T>([&]<typename ... where_Ts>{ 
 				return ([&]<typename T>->bool{ return inc{}(*this); }.template operator()<where_Ts>() && ...); 
 			});
 		}
@@ -167,10 +169,10 @@ namespace ecs {
 
 	template<typename select_T, typename from_T, typename where_T, typename reg_T>
 	class view {
-		using from_type = meta::unwrap_t<from_T>;
+		using from_type = util::unwrap_t<from_T>;
 	public:
 		using iterator = view_iterator<select_T, from_T, where_T, reg_T>;
-		using const_iterator = view_iterator<meta::eval_each_t<select_T, std::add_const>, from_T, where_T, reg_T>;
+		using const_iterator = view_iterator<util::eval_each_t<select_T, std::add_const>, from_T, where_T, reg_T>;
 		using reverse_iterator = std::reverse_iterator<iterator>;
 		using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 		using sentinel_type = view_sentinel;
