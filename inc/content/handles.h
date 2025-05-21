@@ -1,26 +1,18 @@
 #pragma once
 #include "core/traits.h"
+#include <cstdint>
 
 // entity traits
 namespace ecs {
 	template<typename T>
-	struct entity_traits<T, tag::entity_dynamic> {
+	struct entity_traits<T, tag::entity> {
 		using handle_type = ecs::handle<ecs::traits::entity::get_attrib_integral_t<T>, ecs::traits::entity::get_attrib_version_width_v<T>>;
-		using factory_type = traits::entity::get_attrib_factory_t<T, factory<T>>;
+		using create_event = traits::entity::get_attrib_create_event_t<T>;
+		using destroy_event = traits::entity::get_attrib_destroy_event_t<T>;
+		
+		using factory_type = factory<T>;
 
-		using resource_dependencies = std::tuple<factory_type>;
-		using component_dependencies = std::tuple<>;
-		using entity_dependencies = std::tuple<T>;
-	};
-	
-	template<typename T, std::size_t N>
-	struct entity_traits<T, tag::entity_fixed<N>> {
-		using handle_type = ecs::handle<ecs::traits::entity::get_attrib_integral_t<T>, ecs::traits::entity::get_attrib_version_width_v<T>>;
-		using factory_type = traits::entity::get_attrib_factory_t<T, factory<T>>;
-
-		using resource_dependencies = std::tuple<factory_type>;
-		using component_dependencies = std::tuple<>;
-		using entity_dependencies = std::tuple<T>;
+		using dependency_set = util::append_t<ecs::traits::dependencies::get_attrib_dependency_set_t<T>, factory_type, create_event, destroy_event>;
 	};
 }
 
@@ -121,10 +113,11 @@ namespace ecs {
 	};
 
 	struct entity { // type erased handle
-		using ecs_tag_type = ecs::tag::entity;
-		
+		using ecs_tag = ecs::tag::entity;
+		using integral_type = uint64_t;
+
 		template<std::unsigned_integral T, std::size_t N>
-		entity(handle<T, N> handle) : data(static_cast<uint64_t>(handle.data)) { }
+		entity(handle<T, N> handle) : data(static_cast<integral_type>(handle.data)) { }
 		entity(tombstone handle) : data(0xffffffffffffffff) { }
 
 		template<std::unsigned_integral T, std::size_t N>
@@ -133,11 +126,11 @@ namespace ecs {
 		template<std::unsigned_integral T>
 		explicit operator T() const { return static_cast<T>(data); }
 	private:
-		uint64_t data;
+		integral_type data;
 	};
 
 	template<ecs::traits::event_class T>
 	struct event_entity {
-		using ecs_tag_type = tag::entity;
+		using ecs_tag = tag::entity;
 	};
 }

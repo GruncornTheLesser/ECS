@@ -34,7 +34,7 @@ namespace ecs {
 			fact.inactive = value_view{ tmp };
 			
 			// invoke create event
-			if constexpr (traits::is_accessible_v<event::create<entity_type>, reg_T>) {
+			if constexpr (traits::is_accessible_v<reg_T, event::create<entity_type>>) {
 				reg->template on<event::create<entity_type>>().invoke(hnd);
 			}
 			
@@ -51,12 +51,12 @@ namespace ecs {
 			if (fact.active[pos] != ent) return; 
 
 			// invoke destroy event
-			if constexpr (traits::is_accessible_v<event::destroy<entity_type>, reg_T>) {
+			if constexpr (traits::is_accessible_v<reg_T, event::destroy<entity_type>>) {
 				reg->template on<event::destroy<entity_type>>().invoke(ent);
 			}
 			
-			// immediate-mode
-			using entity_component_set = util::filter_t<typename registry_type::component_set, util::pred_<traits::is_entity_match, T>::template type>;
+			using entity_component_set = util::filter_t<traits::registry::get_attrib_component_set_t<reg_T>, 
+				util::cmp::to_<entity_type, std::is_same, traits::component::get_entity>::template type>;
 			util::apply<entity_component_set>([&]<typename ... Ts>() { (reg->template pool<Ts>().erase(ent), ...); });
 			
 			fact.active[pos] = handle_type{ fact.inactive, version_view{ ent } };
@@ -71,7 +71,7 @@ namespace ecs {
 		constexpr void clear() {
 			auto& fact = reg->template get_resource<factory_type>();
 			
-			if constexpr (traits::is_accessible_v<event::destroy<entity_type>, reg_T>)
+			if constexpr (traits::is_accessible_v<reg_T, event::destroy<entity_type>>)
 			{
 				for (std::size_t i = 0; i < fact.active.size(); ++i)
 				{

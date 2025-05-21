@@ -5,23 +5,22 @@
 namespace ecs {
 	namespace traits {
 		template<typename ... select_Ts>
-		struct view_builder<select<select_Ts...>>
-		{
+		struct view_builder<select<select_Ts...>> {
 			using select_type = select<select_Ts...>;
 			using from_type = from<util::find_t<std::tuple<select_Ts...>, is_component>>;
 			using where_type = typename view_builder<select_type, from_type>::where_type;
 		};
 
 		template<typename ... select_Ts, typename from_T>
-		struct view_builder<select<select_Ts...>, from<from_T>>
-		{
+		struct view_builder<select<select_Ts...>, from<from_T>> {
 			using select_type = select<select_Ts...>;
 			using from_type = from<from_T>;
-			using where_type = 
-				util::eval_t<select_type, 
+			using where_type = util::eval_t<select_type, 
 				util::filter_<traits::is_component>::template type, 
-				util::filter_<util::cmp::to_<from_T, util::cmp::attrib_<traits::component::get_manager>::template type>::template type>::template inv, 
-				util::rewrap_<inc>::template type>;
+				util::filter_<util::cmp::to_<from_T, std::is_same, traits::component::get_manager>::template type>::template inv, 
+				util::rewrap_<inc>::template type, 
+				util::wrap_<where>::template type
+			>;
 		};
 	}
 
@@ -29,7 +28,7 @@ namespace ecs {
 	struct inc {
 		template<typename It>
 		inline bool operator()(It& it) {
-			return (it.reg->template pool<Ts>().contains(it->ent) && ...);
+			return (it.reg->template has_component<Ts>(it.ent) && ...);
 		}
 	};
 
@@ -37,7 +36,7 @@ namespace ecs {
 	struct exc {
 		template<typename It>
 		inline bool operator()(It& it) {
-			return !(it->reg.template pool<Ts>().contains(it->ent) || ...);
+			return !(it->reg.template has_component<Ts>(it.ent) || ...);
 		}
 	};
 }
@@ -47,13 +46,15 @@ namespace ecs {
 namespace ecs {
 	template<typename select_T, typename from_T, typename where_T, typename reg_T>
 	class view_iterator {
-	private:
+		template<traits::component_class...> friend struct inc;
+		template<traits::component_class...> friend struct exc;
+	public:
 		using view_type = view<select_T, from_T, where_T, reg_T>;
 		using from_type = util::unwrap_t<from_T>;
 		using entity_type = traits::component::get_entity_t<from_type>;
 		using handle_type = traits::entity::get_handle_t<entity_type>;
 		using manager_type = traits::component::get_manager_t<from_type>;
-		using retrieve_set = util::filter_t<select_T, util::pred::disj_<traits::is_entity, traits::is_data_component>::template type>;
+		using retrieve_set = util::filter_t<select_T, util::pred::disj_<traits::is_entity, util::pred::evaled_<std::is_empty, util::eval_try_<traits::component::get_value>::template type>::template inv>::template type>;
 	public:	
 		using iterator_category = std::bidirectional_iterator_tag;
 		using difference_type = std::ptrdiff_t;
@@ -78,7 +79,7 @@ namespace ecs {
 					auto& manager = reg->template get_resource<traits::component::get_manager_t<from_type>>();
 					return manager.at(pos);
 				} else {
-					if constexpr (traits::is_manager_match_v<T, manager_type>) {
+					if constexpr (std::is_same_v<manager_type, util::eval_try_t<T, traits::component::get_manager>>) {
 						auto& storage = reg->template get_resource<traits::component::get_storage_t<T>>();
 						return storage.at(pos);
 					}
@@ -120,7 +121,7 @@ namespace ecs {
 	private:
 		bool valid() {
 			return util::apply<where_T>([&]<typename ... where_Ts>{ 
-				return ([&]<typename T>->bool{ return inc{}(*this); }.template operator()<where_Ts>() && ...); 
+				return ([&]<typename T>->bool{ return T{}(*this); }.template operator()<where_Ts>() && ...); 
 			});
 		}
 
@@ -129,7 +130,7 @@ namespace ecs {
 		handle_type ent;
 	};
 
-	template<typename select_T, typename from_T, typename reg_T> requires (traits::is_manager_match_v<select_T, traits::component::get_manager_t<from_T>>)
+	template<typename select_T, typename from_T, typename reg_T> requires (std::is_same_v<traits::component::get_manager_t<from_T>, util::eval_try_t<select_T, traits::component::get_manager>>)
 	class view_iterator<select<select_T>, from<from_T>, where<>, reg_T> { 
 		using base_resource = std::conditional_t<traits::is_entity_v<from_T>, traits::component::get_manager_t<from_T>, traits::component::get_storage_t<select_T>>;
 		using base_iterator = traits::resource::get_value_t<base_resource>::iterator;

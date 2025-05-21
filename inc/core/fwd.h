@@ -5,22 +5,13 @@
 // tags
 namespace ecs::tag {
 	struct resource { };
-	struct resource_unrestricted : resource { };
-	struct resource_priority : resource { };
-	struct resource_restricted : resource { };
-
 	struct entity { };
-	struct entity_dynamic : entity { };
-	template<std::size_t N> struct entity_fixed : entity { }; // fixed size entity
-	struct unversioned_entity : entity { };
-	
 	struct component { };
-	struct component_basictype : component { };
-	template<typename T, typename ... Ts> struct component_archetype : component { };
-	template<typename T, typename ... Ts> struct component_uniontype : component { };
-	
 	struct event { };
-	struct synced_event : event { };
+
+	// component types
+	template<typename T, typename ... Ts> struct archetype { };
+	template<typename T, typename ... Ts> struct uniontype { };
 }
 
 namespace ecs::traits {
@@ -43,79 +34,50 @@ namespace ecs::traits {
 	template<typename T, typename=void> struct get_traits;
 	template<typename T> using get_traits_t = typename get_traits<T>::type;
 
-	template<typename ... Ts> struct get_resource_dependencies;
-	template<typename ... Ts> using get_resource_dependencies_t = typename get_resource_dependencies<Ts...>::type;
-
-	template<typename ... Ts> struct get_entity_dependencies;
-	template<typename ... Ts> using get_entity_dependencies_t = typename get_entity_dependencies<Ts...>::type;
-
-	template<typename ... Ts> struct get_component_dependencies;
-	template<typename ... Ts> using get_component_dependencies_t = typename get_component_dependencies<Ts...>::type;
-
 	template<typename, typename=void, typename=void> struct view_builder;
 
-	template<typename T> struct is_data_component;
-	template<typename T> static constexpr bool is_empty_component_v = is_data_component<T>::value;
-
-
-	template<typename T, typename manager_T> struct is_manager_match;
-	template<typename T, typename manager_T> static constexpr bool is_manager_match_v = is_manager_match<T, manager_T>::value;
-
-	template<typename T, typename indexer_T> struct is_indexer_match;
-	template<typename T, typename indexer_T> static constexpr bool is_indexer_match_v = is_indexer_match<T, indexer_T>::value;
-
-	template<typename T, typename storage_T> struct is_storage_match;
-	template<typename T, typename storage_T> static constexpr bool is_storage_match_v = is_storage_match<T, storage_T>::value;
-
-	template<typename T, typename entity_T>  struct is_entity_match;
-	template<typename T, typename entity_T>  static constexpr bool is_entity_match_v = is_entity_match<T, entity_T>::value;
-
-	template<typename T, typename U> struct is_const_accessible;
-	template<typename T, typename U> static constexpr bool is_const_accessible_v = is_const_accessible<T, U>::value;
-
-	template<typename T, typename reg_T> struct is_accessible;	
-	template<typename T, typename reg_T> static constexpr bool is_accessible_v = is_accessible<T, reg_T>::value;
+	template<typename reg_T, typename T> struct is_accessible;
+	template<typename reg_T, typename T> static constexpr bool is_accessible_v = is_accessible<reg_T, T>::value;
 }
 
 // fwd
-namespace ecs {	
-	template<ecs::traits::resource_class Res_T> struct cache;
-	template<typename ... Ts> class registry;
+namespace ecs {
+	template<ecs::traits::resource_class res_T> struct cache;
+	template<typename ... Ts> class registry; // Ts=event or entity or component or resource
+	
+	// handle primitive
+	struct tombstone { };
+	template<std::unsigned_integral T, std::size_t N> struct handle;
+	
+	// mutex primitives
+	enum class priority { LOW = 0, MEDIUM = 1, HIGH = 2 };
+	struct null_mutex;
+	struct priority_mutex;
+	struct priority_shared_mutex;
 
 	// entities
 	struct entity;
 	template<ecs::traits::event_class T> struct event_entity;
 
-	// handles
-	struct tombstone { };
-	template<std::unsigned_integral T, std::size_t N> struct handle;
-
-	// mutexes
-	enum class priority { LOW = 0, MEDIUM = 1, HIGH = 2 };
-	struct null_mutex;
-	struct priority_mutex;
-	struct priority_shared_mutex;
-	
 	// resource classes
-	template<ecs::traits::entity_class T>    struct factory;
-	template<ecs::traits::component_class T> struct manager;
-	template<ecs::traits::component_class T> struct indexer;
-	template<ecs::traits::component_class T> struct storage;
+	template<ecs::traits::entity_class ent_T> struct factory;
+	template<ecs::traits::component_class comp_T> struct manager;
+	template<ecs::traits::component_class comp_T> struct indexer;
+	template<ecs::traits::component_class comp_T> struct storage;
 	
 	// component
-	template<ecs::traits::event_class T, typename callback_T> struct listener;
+	template<ecs::traits::event_class T> struct listener;
 
 	// events
 	namespace event {
-		template<traits::resource_class T>  struct acquire;				// resource acquisition event
-		template<traits::resource_class T>  struct release;				// resource release event
+		template<traits::resource_class res_T>  struct acquire;
+		template<traits::resource_class res_T>  struct release;
 
-		template<traits::component_class T> struct init;   				// component initialization event
-		template<traits::component_class T> struct term; 				// component termination event
+		template<traits::component_class T> struct init;
+		template<traits::component_class T> struct term;
 		
-		template<traits::entity_class T=ecs::entity> struct create; 	// handle event
-		template<traits::entity_class T=ecs::entity> struct destroy;	// handle event
-
+		template<traits::entity_class T=entity> struct create; 
+		template<traits::entity_class T=entity> struct destroy;
 	}
 
 	// services
@@ -134,4 +96,25 @@ namespace ecs {
 	template<typename ... Ts> struct where { };
 	template<ecs::traits::component_class ... Ts> struct inc;
 	template<ecs::traits::component_class ... Ts> struct exc;
+
+	namespace policy {
+		namespace exec {
+			struct immediate { };
+			struct deferred { };
+			struct lazy { };
+		}
+
+		namespace seq {
+			struct stable { };
+			struct sort_by { };
+			struct swap_pop { };
+			struct archetype { };
+		}
+	}
+
+	namespace callback {
+		template<traits::component_class comp_T, traits::resource_class res_T, typename seq_T> struct emplace;
+		template<traits::component_class comp_T, traits::resource_class res_T, typename seq_T> struct erase;
+		template<traits::component_class comp_T, traits::resource_class res_T, typename seq_T> struct clear;
+	}
 }

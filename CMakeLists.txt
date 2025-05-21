@@ -19,7 +19,7 @@ if (EXISTS "${CMAKE_SOURCE_DIR}/main.cpp")
 	include_directories(${CMAKE_CURRENT_SOURCE_DIR}/inc)
 
 	target_link_libraries(ecs PRIVATE util_lib)	
-# target_link_libraries(ecs PRIVATE ecs_lib)
+	# target_link_libraries(ecs PRIVATE ecs_lib)
 endif()
 
 include(FetchContent)
