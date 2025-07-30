@@ -21,7 +21,7 @@ namespace ecs {
 	struct handle {
 	private:
 		static constexpr std::size_t version_width = N;
-		static constexpr T version_mask = static_cast<T>(0xffffffffffffffffull << static_cast<std::size_t>((sizeof(T) * 8) - version_width));
+		static constexpr T version_mask = static_cast<T>(-1ull << static_cast<std::size_t>((sizeof(T) * 8) - version_width));
 		static constexpr T value_mask = ~version_mask;
 		static constexpr T increment = std::bit_floor(value_mask) << 1; // version increment
 	
@@ -33,35 +33,34 @@ namespace ecs {
 			template<std::unsigned_integral, std::size_t> friend struct handle;
 		
 			inline constexpr value_view() : data(0) { }
-			inline constexpr value_view(T data) : data(data) { }
 			inline constexpr value_view(handle hnd) : data(hnd.data) { }
 
 			inline constexpr operator integral_type() const { return data & value_mask; }
-
-			inline constexpr value_view& operator++() { data += 1; return *this; }
-			inline constexpr value_view operator++(int) { auto tmp = *this; data += 1; return tmp; }
 			
-			inline constexpr value_view& operator--() { data -= 1; return *this; }
-			inline constexpr value_view operator--(int) { auto tmp = *this; data -= 1; return tmp; }
+			inline constexpr value_view& operator++() { data += increment; return *this; }
+			inline constexpr value_view operator++(int) { auto tmp = *this; data += increment; return tmp; }
 			
-			inline constexpr bool operator==(value_view other) const { return !((data ^ other.data) & value_mask); }
-			inline constexpr bool operator!=(value_view other) const { return (data ^ other.data) & value_mask; }
+			inline constexpr value_view& operator--() { data -= increment; return *this; }
+			inline constexpr value_view operator--(int) { auto tmp = *this; data -= increment; return tmp; }
+			
+			inline constexpr bool operator==(value_view other) const { 
+				if constexpr (N == 0) return true;
+				else return !((data ^ other.data) & value_mask); 
+			}
+			inline constexpr bool operator!=(value_view other) const { 
+				if constexpr (N == 0) return false; 
+				return (data ^ other.data) & value_mask;
+			}
 
-			inline constexpr bool operator==(integral_type other) const { return (data & value_mask) == other; }
-			inline constexpr bool operator!=(integral_type other) const { return (data & value_mask) != other; }
-
-			inline constexpr bool operator==(tombstone other) const { return value_mask == T{ *this }; }
-			inline constexpr bool operator!=(tombstone other) const { return value_mask != T{ *this }; }
+			inline constexpr bool operator==(tombstone other) const { return (-1ull & value_mask) == (data & value_mask); }
+			inline constexpr bool operator!=(tombstone other) const { return (-1ull & value_mask) != (data & value_mask); }
 		private:
-			T data;
+			integral_type data;
 		};
 		
 		struct version_view {
 			template<std::unsigned_integral, std::size_t> friend struct handle;
-
-		private:
-			inline constexpr version_view(T data) : data(data) { }
-		public:
+		
 			inline constexpr version_view() : data(0) { }
 			inline constexpr version_view(handle hnd) : data(hnd.data) { }
 
@@ -81,20 +80,22 @@ namespace ecs {
 				if constexpr (N == 0) return false; 
 				return (data ^ other.data) & version_mask;
 			}
+
+			inline constexpr bool operator==(tombstone other) const { return (-1ull & version_mask) == (data & version_mask); }
+			inline constexpr bool operator!=(tombstone other) const { return (-1ull & version_mask) != (data & version_mask); }
 		private:
-			T data;
+			integral_type data;
 		};
 		
 		// default to tombstone
-		inline constexpr handle() : data(value_mask) { }
+		inline constexpr handle() : data(0) { }
 		inline constexpr handle(tombstone) : data(value_mask) { }
+		inline constexpr handle(value_view val) : data(val.data) { }
+		inline constexpr handle(version_view vers) : data(vers.data) { }
 		
-		inline constexpr handle(value_view val) : data(val) { }
-		inline constexpr handle(value_view val, version_view vers) : data((val.data & value_mask) | (vers & version_mask)) { }
+		inline constexpr handle(integral_type val, version_view vers) : data((val & value_mask) | (vers.data & version_mask)) { }
 
-		inline constexpr explicit handle(T val) : data(val) { }
-		
-		inline constexpr operator T() const { return data; }
+		inline explicit constexpr operator integral_type() const { return data; }
 
 		inline constexpr handle& operator=(tombstone) { data = value_mask; return *this; }
 		inline constexpr handle& operator=(value_view other) { data = version_view{ data } | other; return *this; }
@@ -103,14 +104,33 @@ namespace ecs {
 		inline constexpr bool operator==(handle other) const { return other.data == data; }
 		inline constexpr bool operator!=(handle other) const { return other.data != data; }
 
-		inline constexpr bool operator==(version_view other) const { return  version_view(*this) == other; }
-		inline constexpr bool operator!=(version_view other) const { return  version_view(*this) != other; }
+		inline constexpr bool operator==(version_view other) const { return version_view{ *this } == other; }
+		inline constexpr bool operator!=(version_view other) const { return version_view{ *this } != other; }
 
-		inline constexpr bool operator==(tombstone other) const { return value_mask == value_view{ *this }; }
-		inline constexpr bool operator!=(tombstone other) const { return value_mask != value_view{ *this }; }
+		inline constexpr bool operator==(tombstone other) const { return value_view{ *this } == other; }
+		inline constexpr bool operator!=(tombstone other) const { return value_view{ *this } == other; }
 	private:
-		T data;
+		integral_type data;
 	};
+
+	template<typename T, std::size_t N>
+	bool operator==(T lhs, handle<T, N> rhs) { }
+
+	template<typename T, std::size_t N>
+	bool operator==(T lhs, typename handle<T, N>::value_view rhs) { }
+
+	template<typename T, std::size_t N>
+	bool operator==(T lhs, typename handle<T, N>::version_view rhs) { }
+
+	template<typename T, std::size_t N>
+	bool operator==(handle<T, N> lhs, T rhs) { return rhs == lhs; }
+
+	template<typename T, std::size_t N>
+	bool operator==(typename handle<T, N>::value_view lhs, T rhs) { return rhs == lhs; }
+
+	template<typename T, std::size_t N>
+	bool operator==(typename handle<T, N>::version_view lhs, T rhs) { return rhs == lhs; }
+
 
 	struct entity { // type erased handle
 		using ecs_tag = ecs::tag::entity;
@@ -132,5 +152,7 @@ namespace ecs {
 	template<ecs::traits::event_class T>
 	struct event_entity {
 		using ecs_tag = tag::entity;
+		using create_event = void;
+		using destroy_event = void;
 	};
 }

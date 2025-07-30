@@ -19,26 +19,26 @@ namespace ecs {
 		cache(Reg_T& reg) { }
 
 		void lock() { 
-			if constexpr (std::is_void_v<decltype(std::declval<mutex_type>().lock())>) {
-				mutex.lock();
-			}
-		}
-		void lock() const { 
-			if constexpr (std::is_void_v<decltype(std::declval<mutex_type>().shared_lock())>) {
-				mutex.shared_lock();
-			} else if constexpr (std::is_void_v<decltype(std::declval<mutex_type>().lock())>) {
+			if constexpr (requires { std::declval<mutex_type>().lock(); }) {
 				mutex.lock();
 			}
 		}
 		void unlock() { 
-			if constexpr (std::is_void_v<decltype(std::declval<mutex_type>().lock())>) {
+			if constexpr (requires { std::declval<mutex_type>().unlock(); }) {
 				mutex.unlock();
 			}
 		}
+		void lock() const { 
+			if constexpr (requires { std::declval<mutex_type>().shared_lock(); }) {
+				mutex.shared_lock();
+			} else if constexpr (requires { std::declval<mutex_type>().lock(); }) {
+				mutex.lock();
+			}
+		}
 		void unlock() const {
-			if constexpr (std::is_void_v<decltype(std::declval<mutex_type>().shared_unlock())>) {
+			if constexpr (requires { std::declval<mutex_type>().shared_lock(); }) {
 				mutex.shared_unlock();
-			} else if constexpr (std::is_void_v<decltype(std::declval<mutex_type>().unlock())>) {
+			} else if constexpr (requires { std::declval<mutex_type>().lock(); }) {
 				mutex.unlock();
 			}
 		}
@@ -84,13 +84,13 @@ namespace ecs {
 		registry& operator=(registry&& other) = delete;
 
 		template<traits::resource_class T> requires(traits::is_accessible_v<registry<Ts...>, T>)
-		inline cache<T>& get_cache() {
-			return std::get<std::remove_const_t<cache<T>>>(resources);
+		inline cache<std::remove_const_t<T>>& get_cache() {
+			return std::get<cache<std::remove_const_t<T>>>(resources);
 		}
 
 		template<traits::resource_class T> requires(traits::is_accessible_v<const registry<Ts...>, std::add_const_t<T>>)
-		inline const cache<T>& get_cache() const {
-			return std::get<std::remove_const_t<cache<T>>>(resources);
+		inline const cache<std::remove_const_t<T>>& get_cache() const {
+			return std::get<cache<std::remove_const_t<T>>>(resources);
 		}
 
 		template<traits::resource_class T> requires(traits::is_accessible_v<registry<Ts...>, T>)
@@ -150,9 +150,15 @@ namespace ecs {
 			return this;
 		}
 
-		template<traits::component_class T, typename ... arg_Ts> requires(traits::is_accessible_v<registry<Ts...>, T> && std::is_constructible_v<traits::component::get_value_t<T>, arg_Ts...>)
-		inline decltype(auto) emplace(traits::entity::get_handle_t<traits::component::get_entity_t<T>> ent, arg_Ts&& ... args) {
-			return ecs::pool<T, registry<Ts...>>{ this }.emplace(ent, std::forward<arg_Ts>(args)...);
+		template<traits::component_class comp_T, typename ... arg_Ts>
+		inline decltype(auto) emplace(traits::entity::get_handle_t<traits::component::get_entity_t<comp_T>> ent, arg_Ts&& ... args) {
+			return ecs::pool<comp_T, registry<Ts...>>{ this }.emplace(ent, std::forward<arg_Ts>(args)...);
+		}
+
+		template<traits::component_class T, typename ... arg_Ts> 
+			requires(traits::is_accessible_v<registry<Ts...>, T>)
+		inline decltype(auto) insert(traits::entity::get_handle_t<traits::component::get_entity_t<T>> ent, traits::component::get_value_t<T>&& value) {
+			// TODO: implement me
 		}
 
 		template<traits::component_class comp_T, traits::entity_class ent_T=entity> 
@@ -202,26 +208,20 @@ namespace ecs {
 		}
 
 		template<typename ... dep_Ts> requires((traits::is_accessible_v<registry<Ts...>, dep_Ts> && ...))
-		void acquire(priority p = priority::MEDIUM) {
+		void lock(priority p = priority::MEDIUM) {
 			using dep_resource_set = util::eval_t<traits::dependencies::get_resource_set_t<dep_Ts...>,  
 				util::sort_by_<traits::resource::get_lock_priority, util::get_type_name>::template type
 			>;
-			
-			util::apply<dep_resource_set>([&]<typename ... Res_Ts>{ 
-				(get_cache<Res_Ts>().lock(p), ...); 
-			});
+			util::apply<dep_resource_set>([&]<typename ... Res_Ts>{ (get_cache<Res_Ts>().lock(p), ...); });
 		}
 
 		template<typename ... dep_Ts> requires((traits::is_accessible_v<registry<Ts...>, dep_Ts> && ...))
-		void release() {
-			using dep_resource_set = util::eval_t<traits::dependencies::get_resource_set_t<dep_Ts...>,  
+		void unlock() {
+			using dep_resource_set = util::eval_t<traits::dependencies::get_resource_set_t<dep_Ts...>, 
 				util::sort_by_<traits::resource::get_lock_priority, util::get_type_name>::template type,
 				util::reverse
 			>;
-
-			util::apply<dep_resource_set>([&]<typename ... Res_Ts>{
-				(get_cache<Res_Ts>().unlock(), ...); 
-			});
+			util::apply<dep_resource_set>([&]<typename ... Res_Ts>{ (get_cache<Res_Ts>().unlock(), ...); });
 		}
 
 	private:

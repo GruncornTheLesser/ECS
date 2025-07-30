@@ -1,5 +1,6 @@
 #pragma once
 #include "core/traits.h"
+#include <functional>
 #include <util.h>
 
 namespace ecs {
@@ -39,16 +40,32 @@ namespace ecs {
 			return !(it->reg.template has_component<Ts>(it.ent) || ...);
 		}
 	};
+
+	template<traits::component_class T>
+	struct cnd {
+		static_assert(!std::is_void_v<traits::component::get_storage_t<T>>);
+
+		template<typename It> requires (std::is_same_v<traits::component::get_manager_t<T>, typename It::manager_type>)
+		inline bool operator()(It& it) {
+			return pred(it->reg->template get_resource<traits::component::get_storage_t<T>>().at(it->ind));
+		}
+
+		template<typename It> requires (!std::is_same_v<traits::component::get_manager_t<T>, typename It::manager_type>)
+		inline bool operator()(It& it) {
+			return pred(it->reg->template pool<T>().at(it->ind));
+		}
+
+		std::function<bool(const T&)> pred;
+	};
+	
 }
-
-
 
 namespace ecs {
 	template<typename select_T, typename from_T, typename where_T, typename reg_T>
 	class view_iterator {
 		template<traits::component_class...> friend struct inc;
 		template<traits::component_class...> friend struct exc;
-	public:
+	private:
 		using view_type = view<select_T, from_T, where_T, reg_T>;
 		using from_type = util::unwrap_t<from_T>;
 		using entity_type = traits::component::get_entity_t<from_type>;
@@ -73,10 +90,10 @@ namespace ecs {
 		view_iterator(view_iterator&& other) : reg(other.reg), pos(other.pos), ent(other.ent) { }
 		view_iterator& operator=(view_iterator&& other) { reg = other.reg; pos = other.pos; ent = other.ent; }
 
-		constexpr value_type operator*() const { 
+		constexpr value_type operator*() const {
 			return util::apply_each<retrieve_set, value_type>([&]<typename T>->decltype(auto) { 
 				if constexpr (traits::is_entity_v<T>) {
-					auto& manager = reg->template get_resource<traits::component::get_manager_t<from_type>>();
+					auto& manager = reg->template get_resource<manager_type>();
 					return manager.at(pos);
 				} else {
 					if constexpr (std::is_same_v<manager_type, util::eval_try_t<T, traits::component::get_manager>>) {
@@ -128,37 +145,6 @@ namespace ecs {
 		reg_T* reg;
 		std::size_t pos;
 		handle_type ent;
-	};
-
-	template<typename select_T, typename from_T, typename reg_T> requires (std::is_same_v<traits::component::get_manager_t<from_T>, util::eval_try_t<select_T, traits::component::get_manager>>)
-	class view_iterator<select<select_T>, from<from_T>, where<>, reg_T> { 
-		using base_resource = std::conditional_t<traits::is_entity_v<from_T>, traits::component::get_manager_t<from_T>, traits::component::get_storage_t<select_T>>;
-		using base_iterator = traits::resource::get_value_t<base_resource>::iterator;
-	public:
-		using iterator_tag = std::bidirectional_iterator_tag;
-		using value_type = typename std::iterator_traits<base_iterator>::value_type;
-		using difference_type = typename std::iterator_traits<base_iterator>::difference_type;
-		
-		view_iterator() = default;
-		view_iterator(reg_T* reg, std::size_t pos) : it(reg->template get_resource<base_resource>().begin() + pos) { }
-		view_iterator(const view_iterator& other)  = default;
-		view_iterator& operator=(const view_iterator& other) = default;
-		view_iterator(view_iterator&& other) = default;
-		view_iterator& operator=(view_iterator&& other) = default;
-
-		constexpr view_iterator& operator++() { ++it; }
-		constexpr view_iterator& operator--() { ++it; }
-		
-		constexpr view_iterator operator++(int) { auto tmp = *this; ++it; return tmp; }
-		constexpr view_iterator operator--(int) { auto tmp = *this; --it; return tmp; }
-
-		constexpr difference_type operator-(const view_iterator& other) const { return it - other.it; }
-
-		constexpr bool operator==(const view_iterator& other) const { return it == other.it; }
-		constexpr bool operator!=(const view_iterator& other) const { return it != other.it; }
-
-	private:
-		base_iterator it;
 	};
 
 	struct view_sentinel {

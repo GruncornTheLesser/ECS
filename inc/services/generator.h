@@ -7,60 +7,72 @@ namespace ecs {
 	public:
 		using registry_type = reg_T;
 		using entity_type = T;
-		using handle_type = typename entity_traits<T>::handle_type;
+		using handle_type = traits::entity::get_handle_t<T>;
 		using value_view = typename handle_type::value_view;
 		using version_view = typename handle_type::version_view;
 		using integral_type = typename handle_type::integral_type;
-		using factory_type = typename entity_traits<T>::factory_type;
-		
+		using factory_type = traits::entity::get_factory_t<T>;
+		using create_event = traits::entity::get_create_event_t<T>;
+		using destroy_event = traits::entity::get_destroy_event_t<T>;
+
 		inline constexpr generator(reg_T* reg) noexcept : reg(reg) { }
 		
 		constexpr handle_type create() {
-			auto& fact = reg->template get_resource<factory_type>();
-			
-			if (fact.inactive == tombstone{ }) {
-				return fact.active.emplace_back(handle_type{ static_cast<integral_type>(fact.active.size()) });
+			auto& factory = reg->template get_resource<factory_type>();
+
+			handle_type hnd;
+
+			if (factory.empty())
+			{
+				hnd = handle_type{ };
+				factory.push_back(hnd);
+			} 
+			else if (handle_type next = factory.back(); next != tombstone{ })
+			{
+				hnd = handle_type{ factory.size(), { } };
+				factory.push_back(hnd);
+			}
+			else if (value_view{ next } == 0ull)
+			{
+				hnd = { factory.size() - 1, ++version_view{ factory.back() } };
+				factory.back() = hnd;
+			}
+			else
+			{
+				
 			}
 
-			// get head of inactive list
-			integral_type next = value_view{ fact.inactive };
-			handle_type tmp = fact.active[next];
-			
-			// resurrect previous handle
-			handle_type hnd = handle_type{ next, ++version_view{ tmp } };
-			fact.active[next] = hnd;
-			
-			// iterate inactive list
-			fact.inactive = value_view{ tmp };
-			
-			// invoke create event
-			if constexpr (traits::is_accessible_v<reg_T, event::create<entity_type>>) {
-				reg->template on<event::create<entity_type>>().invoke(hnd);
+			if constexpr (!std::is_void_v<create_event>) {
+				reg->template on<create_event>().invoke(hnd);	// invoke create event
 			}
 			
 			return hnd;
 		}
 		
 		constexpr void destroy(handle_type ent) {
-			auto& fact = reg->template get_resource<factory_type>();
-			
-			// get handle value
-			integral_type pos = value_view{ ent }; 
-			
-			// if not alive
-			if (fact.active[pos] != ent) return; 
+			/*
+			auto& factory = reg->template get_resource<factory_type>();
 
-			// invoke destroy event
-			if constexpr (traits::is_accessible_v<reg_T, event::destroy<entity_type>>) {
-				reg->template on<event::destroy<entity_type>>().invoke(ent);
+
+			if (factory.empty()) { 																			// if no active handles
+				return;
+			} else if (integral_type ind = value_view{ ent }; value_view{ factory[ind - 1] } != ind) {			// if handle already inactive
+				return;
+			} else if (integral_type next = value_view{ factory.back() }; next == factory.size()) { 		// if no head to inactive list
+				emplace_back(handle_type{ ind, -1 });
+			} else { 																						// if multiple inactive handles
+				factory[ind] = handle_type{ value_view{ factory.back() }, factory[ind] };
+				factory.back() = handle_type{ ind, factory.back() };
 			}
+
+
+
 			
 			using entity_component_set = util::filter_t<traits::registry::get_attrib_component_set_t<reg_T>, 
 				util::cmp::to_<entity_type, std::is_same, traits::component::get_entity>::template type>;
 			util::apply<entity_component_set>([&]<typename ... Ts>() { (reg->template pool<Ts>().erase(ent), ...); });
 			
-			fact.active[pos] = handle_type{ fact.inactive, version_view{ ent } };
-			fact.inactive = ent;
+			*/
 		}
 
 		constexpr bool alive(handle_type hnd) {
@@ -69,6 +81,7 @@ namespace ecs {
 		}
 	
 		constexpr void clear() {
+			/*
 			auto& fact = reg->template get_resource<factory_type>();
 			
 			if constexpr (traits::is_accessible_v<reg_T, event::destroy<entity_type>>)
@@ -84,6 +97,7 @@ namespace ecs {
 
 			fact.active.clear();
 			fact.inactive = tombstone{ };
+			*/
 		}
 	private:
 		reg_T* reg;

@@ -8,8 +8,16 @@ namespace ecs::tag {
 	struct entity { };
 	struct component { };
 	struct event { };
+	
+	namespace policy {
+		struct exec { };
+		struct seq { };
+	};
 
-	// component types
+	// special resource
+	template<typename ... Ts> struct resource_set { };
+
+	// special component
 	template<typename T, typename ... Ts> struct archetype { };
 	template<typename T, typename ... Ts> struct uniontype { };
 }
@@ -60,24 +68,23 @@ namespace ecs {
 	template<ecs::traits::event_class T> struct event_entity;
 
 	// resource classes
-	template<ecs::traits::entity_class ent_T> struct factory;
+	template<ecs::traits::entity_class ent_T>     struct factory;
 	template<ecs::traits::component_class comp_T> struct manager;
 	template<ecs::traits::component_class comp_T> struct indexer;
 	template<ecs::traits::component_class comp_T> struct storage;
+
 	
 	// component
 	template<ecs::traits::event_class T> struct listener;
+	template<ecs::traits::event_class T> struct once_tag;
 
 	// events
-	namespace event {
-		template<traits::resource_class res_T>  struct acquire;
-		template<traits::resource_class res_T>  struct release;
-
-		template<traits::component_class T> struct init;
-		template<traits::component_class T> struct term;
+	namespace event {		
+		template<traits::component_class T> struct initialize;
+		template<traits::component_class T> struct terminate;
 		
-		template<traits::entity_class T=entity> struct create; 
-		template<traits::entity_class T=entity> struct destroy;
+		template<traits::entity_class T> struct create;
+		template<traits::entity_class T> struct destroy;
 	}
 
 	// services
@@ -94,27 +101,7 @@ namespace ecs {
 	template<typename ... Ts> requires ((traits::is_entity_v<Ts> || traits::is_component_v<Ts>) && ...) struct select { };
 	template<traits::component_class T> struct from { };
 	template<typename ... Ts> struct where { };
-	template<ecs::traits::component_class ... Ts> struct inc;
-	template<ecs::traits::component_class ... Ts> struct exc;
-
-	namespace policy {
-		namespace exec {
-			struct immediate { };
-			struct deferred { };
-			struct lazy { };
-		}
-
-		namespace seq {
-			struct stable { };
-			struct sort_by { };
-			struct swap_pop { };
-			struct archetype { };
-		}
-	}
-
-	namespace callback {
-		template<traits::component_class comp_T, traits::resource_class res_T, typename seq_T> struct emplace;
-		template<traits::component_class comp_T, traits::resource_class res_T, typename seq_T> struct erase;
-		template<traits::component_class comp_T, traits::resource_class res_T, typename seq_T> struct clear;
-	}
+	template<traits::component_class ... Ts> struct inc;
+	template<traits::component_class ... Ts> struct exc;
+	template<traits::component_class T>		 struct cnd;
 }
