@@ -1,14 +1,7 @@
 #pragma once
 #include "core/traits.h"
-#include <stdexcept>
 #include <span>
-
-// things you can do
-// - disable storage by setting storage_type to void
-// - share lookup and management by setting manager_type and indexer_type to the same resource
-// ! size() attribute cannot be found if storage_type is void and indexer_type is the same as manager_type
-// ! reserved() == size() it would definitely break the insertion and erase synchronization and storage
-// ^ solution: create null_storage type? which is an empty interface for a storage container simply holding 'std::size_t size() const'
+#include <tuple>
 
 namespace ecs {
 	template<ecs::traits::component_class T, typename reg_T>
@@ -18,188 +11,280 @@ namespace ecs {
 		using registry_type = reg_T;
 
 		using entity_type = traits::component::get_entity_t<component_type>;
+		using handle_type = traits::component::get_handle_t<component_type>;
 		using value_type = util::copy_const_t<traits::component::get_value_t<component_type>, T>;
+
+		using initialize_type = traits::component::get_initialize_event_t<component_type>;
+		using terminate_type = traits::component::get_terminate_event_t<component_type>;
+		
 		using manager_type = util::copy_const_t<traits::component::get_manager_t<component_type>, T>;
 		using indexer_type = util::copy_const_t<traits::component::get_indexer_t<component_type>, T>;
-		using storage_type = util::copy_const_t<traits::component::get_storage_t<component_type>, T>;	
-
-		using handle_type = traits::entity::get_handle_t<entity_type>;
-		using value_view = typename handle_type::value_view;
-		using version_view = typename handle_type::version_view;
-				
+		using storage_type = util::copy_const_t<traits::component::get_storage_t<component_type>, T>;
+		
+		static constexpr bool entity_enabled = !std::is_void_v<entity_type>;
+		static constexpr bool manager_enabled = !std::is_void_v<manager_type>;
+		static constexpr bool indexer_enabled = !std::is_void_v<indexer_type>;
+		static constexpr bool storage_enabled = !std::is_void_v<storage_type>;
+		
 		static constexpr bool event_initialize_enabled = !std::is_void_v<traits::component::get_initialize_event_t<T>>;
 		static constexpr bool event_terminate_enabled = !std::is_void_v<traits::component::get_terminate_event_t<T>>;
-
+		
+		static constexpr bool shared_manager = manager_enabled && (std::is_same_v<manager_type, indexer_type> || std::is_same_v<manager_type, storage_type>);
+		static constexpr bool shared_indexer = indexer_enabled && (std::is_same_v<indexer_type, manager_type> || std::is_same_v<indexer_type, storage_type>);
+		static constexpr bool shared_storage = storage_enabled && (std::is_same_v<storage_type, manager_type> || std::is_same_v<storage_type, indexer_type>);
+		
+		static constexpr bool shared_manager_indexer_storage = manager_enabled && std::is_same_v<manager_type, indexer_type> && std::is_same_v<manager_type, storage_type>; 
+		static constexpr bool shared_manager_indexer = manager_enabled && std::is_same_v<manager_type, indexer_type>; // set<handle_type>
+		static constexpr bool shared_indexer_storage = indexer_enabled && std::is_same_v<indexer_type, storage_type>; // map<handle_type, value_type>
+		static constexpr bool shared_manager_storage = storage_enabled && std::is_same_v<manager_type, storage_type>; // std::vector<std::pair<handle_type, value_type>>
 	public:
-		inline constexpr pool(reg_T* reg) noexcept : reg(reg) { }
+		inline constexpr pool(reg_T& reg) noexcept : reg(reg) { }
 
-		inline constexpr auto begin() noexcept { return reg->template view<entity_type, T>().begin(); }
-		inline constexpr auto end() noexcept { return reg->template view<entity_type, T>().end(); }
-		inline constexpr auto rbegin() noexcept { return reg->template view<entity_type, T>().rbegin(); }
-		inline constexpr auto rend() noexcept { return reg->template view<entity_type, T>().rend(); }
-		
-		/** @brief the count of active components in the pool */
-		[[nodiscard]] inline constexpr std::size_t size() const {
-			return reg->template get_resource<const storage_type>().size();
-		}
-		/** @brief the number of active + inactive components */
-		[[nodiscard]] constexpr std::size_t reserved() const { 
-			return reg->template get_resource<const manager_type>().size();
-		}
-		/** @brief the number of allocated components */
-		[[nodiscard]] constexpr std::size_t capacity() const { 
-			return reg->template get_resource<const manager_type>().capacity();
-		}
-		/** @brief return true if size() equals zero */
-		[[nodiscard]] inline constexpr bool empty() const noexcept {
-			return size() == 0;
-		}
-		/** @brief returns the index of the component of a given entity */
-		[[nodiscard]] constexpr std::size_t index_of(handle_type ent) const {
-			if constexpr (requires { reg->template get_resource<const indexer_type>().find(ent); }) {
-				const auto& indexer = reg->template get_resource<const indexer_type>();
-				if (auto it = indexer.find(ent); it != indexer.end() && version_view{ it->second } == version_view{ ent }) {
-					return value_view{ it->second };
-				} 
-				return -1;
-			}
-			
-			else if (requires { std::ranges::find(reg->template get_resource<const manager_type>(), ent); }) {
-				const auto& manager = reg->template get_resource<const manager_type>();
-				if (auto it = std::find(manager.begin(), manager.begin() + size(), ent); it != manager.end()) {
-					return it - manager.begin();
-				}
-				return -1;
-			} 
-			
-			else static_assert(false);
-		}
-
-		/** @brief returns true if entity exists within the pool */
-		[[nodiscard]] constexpr bool contains(handle_type ent) const {
-
-			if constexpr (requires { reg->template get_resource<const indexer_type>(); }) {
-				const auto& indexer = reg->template get_resource<const indexer_type>();
-
-				if constexpr (requires { indexer.contains(ent); }) {
-					return indexer.contains(ent);
-				}
-				else if constexpr (requires { indexer.find(ent); }) {
-					return (indexer.find(std::size_t{ ent }) != indexer.end());
-				}
-			}
-
-			if constexpr (requires { reg->template get_resource<const manager_type>(); }) {
-				const auto& manager = reg->template get_resource<const manager_type>();
-
-				if constexpr (requires { manager.contains(ent); }) {
-					return manager.contains(ent);
-				}
-				else if constexpr (requires { manager.find(value_view{ ent }); }) {
-					return manager.find(std::size_t{ ent }) != manager.end();
-				}
-				else if constexpr (requires { std::find(manager.begin(), manager.begin() + size(), ent); }) {
-					auto begin = manager.begin();
-					auto end = manager.begin() + size();
-					return std::find(begin, end, ent) != end;
-				}
-				return -1;
+		/** the number of active + inactive components */
+		[[nodiscard]] constexpr std::size_t size() const {
+			if constexpr (manager_enabled) {
+				return reg.template get_attribute<manager_type>().size();
+			} else if constexpr (storage_enabled) {
+				return reg.template get_attribute<storage_type>().size();
+			} else {
+				return reg.template get_attribute<indexer_type>().size();
 			}
 		}
 
-		/** @brief returns the entity at the given index */
-		[[nodiscard]] inline handle_type at(std::size_t ind) {
-			return reg->template get_resource<const manager_type>().at(ind);
-		}
-		
-		/** @brief returns the component at the given index */
-		[[nodiscard]] inline value_type& get_at(std::size_t ind) {
-			return reg->template get_resource<storage_type>().at(ind);
+		/** returns the entity handle at the given index */
+		[[nodiscard]] constexpr inline handle_type at(std::size_t ind) requires (manager_enabled) { 
+			if constexpr (shared_manager) {
+				return reg.template get_attribute<manager_type>().at(ind).first;
+			} else {
+				return reg.template get_attribute<manager_type>().at(ind);
+			}
 		}
 
-		/** @brief returns the component of the given entity */
-		[[nodiscard]] inline value_type& get(handle_type hnd) {
-			return get_at(index_of(hnd));
+		/** returns the entity handle at the given index */
+		[[nodiscard]] constexpr inline const handle_type at(std::size_t ind) const requires (manager_enabled) { 
+			if constexpr (shared_manager) {
+				return reg.template get_attribute<manager_type>().at(ind).first;
+			} else {
+				return reg.template get_attribute<manager_type>().at(ind);
+			}
 		}
-			
+
+		/** returns the entity handle at the given index */
+		[[nodiscard]] constexpr inline value_type& component_at(std::size_t ind) requires (storage_enabled) { 
+			if constexpr (shared_storage) {
+				return reg.template get_attribute<storage_type>().at(ind).second;
+			} else {
+				return reg.template get_attribute<storage_type>().at(ind);
+			}
+		}
+
+		/** returns the entity handle at the given index */
+		[[nodiscard]] constexpr inline const value_type& component_at(std::size_t ind) const requires (storage_enabled) { 
+			if constexpr (shared_storage) {
+				return reg.template get_attribute<storage_type>().at(ind).second;
+			} else {
+				return reg.template get_attribute<storage_type>().at(ind);
+			}
+		}
+
+		/** returns the entity handle at the given index */
+		[[nodiscard]] constexpr inline value_type& get_component(handle_type hnd) requires (storage_enabled) { 
+			if constexpr (shared_indexer_storage) {
+				return reg.template get_attribute<storage_type>().find(hnd)->second;
+			} else {
+				return component_at(index_of(hnd));
+			}			
+		}
+
+		/** returns the entity handle at the given index */
+		[[nodiscard]] constexpr inline const value_type& get_component(handle_type hnd) const requires (storage_enabled) { 
+			if constexpr (shared_indexer_storage) {
+				return reg.template get_attribute<storage_type>().find(hnd)->second;
+			} else {
+				return component_at(index_of(hnd));
+			}
+		}
+
+		/** returns the entity handle at the given index */
+		[[nodiscard]] constexpr inline bool get_component(handle_type hnd) requires (!storage_enabled) {
+			return contains(hnd);
+		}
+
+		/** returns the entity handle at the given index */
+		[[nodiscard]] constexpr inline bool get_component(handle_type hnd) const requires (!storage_enabled) {
+			return contains(hnd);
+		}
+
+		/** returns true if entity exists within the pool */
+		[[nodiscard]] constexpr inline bool contains(handle_type ent) const requires (indexer_enabled || manager_enabled) {
+			if constexpr (indexer_enabled) {
+				return reg.template get_attribute<const indexer_type>().contains(ent);
+			} else if constexpr (shared_manager) {
+				return std::ranges::contains(reg.template get_attribute<const manager_type>(), ent, [](const auto& p) { return p.first; });
+			} else {
+				return std::ranges::contains(reg.template get_attribute<const manager_type>(), ent);
+			}
+		}
+
+		/** returns the index of the component of a given entity */
+		[[nodiscard]] constexpr std::size_t index_of(handle_type hnd) const requires (manager_enabled || (indexer_enabled && storage_enabled)) {
+			if constexpr (indexer_enabled) {
+				const auto& indexer = reg.template get_attribute<const indexer_type>();
+				
+				if (auto it = indexer.find(hnd); it != indexer.end()) { 
+					if constexpr (shared_indexer || (!manager_enabled && !storage_enabled)) {
+						return std::distance(indexer.begin(), it);
+					} else {
+						return it->second;
+					} 	
+				}
+			} else if constexpr (manager_enabled) {
+				const auto& manager = reg.template get_attribute<const manager_type>();
+				if constexpr (shared_manager_storage) {
+					if (auto it = std::ranges::find(manager, hnd, [](auto& p) { return p.first; }); it != manager.end()) {
+						return std::distance(manager.begin(), it);
+					}
+				} else {
+					if (auto it = std::ranges::find(manager, hnd); it != manager.end()) {
+						return std::distance(manager.begin(), it);
+					}
+				}
+			} else {
+				static_assert(false);
+			}
+
+			return -1;
+		}
+
 		// modifiers
-		/** @brief queues a component to be added to the container */
-		template<typename ... arg_Ts> requires (std::is_void_v<storage_type> || std::is_constructible_v<value_type, arg_Ts...>)
-		constexpr decltype(auto) emplace(handle_type ent, arg_Ts&&... args) { }
+		/** adds a component to an entity */
+		template<typename ... arg_Ts>
+		constexpr value_type& emplace(handle_type hnd, arg_Ts&&... args) requires (entity_enabled && storage_enabled) {
+			value_type* ptr;
+
+			if constexpr (indexer_enabled) {
+				auto& indexer = reg.template get_attribute<indexer_type>();
+
+				if constexpr (shared_indexer_storage) {
+					ptr = &indexer.try_emplace(hnd, std::forward<arg_Ts>(args)...).first->second;
+				} else if constexpr (shared_manager_indexer) {
+					indexer.emplace(hnd);
+				} else {
+					indexer.emplace(hnd, size());
+				}
+			}
+			
+			if constexpr (manager_enabled && !shared_manager_indexer) {
+				auto& manager = reg.template get_attribute<manager_type>();
+				
+				if constexpr (shared_manager_storage) {
+					ptr = &manager.emplace_back(std::piecewise_construct, std::forward_as_tuple(hnd), std::forward_as_tuple(args...)).second;
+				} else {
+					manager.emplace_back(std::forward<arg_Ts>(args)...);
+				}
+			}
+
+			if constexpr (!shared_manager_storage && !shared_indexer_storage) {
+				ptr = &reg.template get_attribute<storage_type>().emplace_back(std::forward<arg_Ts>(args)...);
+			}
+
+			if constexpr (event_initialize_enabled) {
+				reg.template on<initialize_type>().invoke(hnd, *ptr);
+			}
+
+			return *ptr;
+		}
+
+		template<typename ... arg_Ts>
+		constexpr void emplace(handle_type hnd, arg_Ts&&... args) requires (entity_enabled && !storage_enabled) {
+			if constexpr (indexer_enabled) {
+				auto& indexer = reg.template get_attribute<indexer_type>();
+
+				if constexpr (shared_manager_indexer || !manager_enabled) { // AA-, A--
+					indexer.emplace(hnd);
+				} else {
+					indexer.emplace(hnd, size());
+				}
+			}
+			
+			if constexpr (manager_enabled && !shared_manager_indexer) {
+				reg.template get_attribute<manager_type>().emplace_back(std::forward<arg_Ts>(args)...);
+			}
+
+			if constexpr (event_initialize_enabled) {
+				reg.template on<initialize_type>().invoke(hnd);
+			}
+		}
+
+		template<typename ... arg_Ts>
+		constexpr std::pair<handle_type, value_type&> emplace(arg_Ts&&... args) requires (!entity_enabled && storage_enabled);
+
+		template<typename ... arg_Ts>
+		constexpr void emplace(handle_type hnd, arg_Ts&&... args) requires (!entity_enabled && !storage_enabled) {
+			if constexpr (indexer_enabled) {
+				auto& indexer = reg.template get_attribute<indexer_type>();
+
+				if constexpr (shared_manager_indexer || !manager_enabled) {
+					indexer.emplace(hnd);
+				} else {
+					indexer.emplace(hnd, size());
+				}
+			}
+			
+			if constexpr (manager_enabled && !shared_manager_indexer) {
+				reg.template get_attribute<manager_type>().emplace_back(std::forward<arg_Ts>(args)...);
+			}
+
+			if constexpr (event_initialize_enabled) {
+				reg.template on<initialize_type>().invoke(hnd);
+			}
+		}
+
+		/** adds a component to each entity */
+		//template<typename ... arg_Ts>
+		//constexpr void emplace(std::span<handle_type> ents, arg_Ts&&... args) { }
 		
-		// template<typename ... arg_Ts> requires (std::is_void_v<storage_type> || std::is_constructible_v<value_type, arg_Ts...>)
-		// constexpr decltype(auto) emplace(std::span<handle_type> ents, arg_Ts&&... args) { }
+		//template<typename ... arg_Ts>
+		//constexpr decltype(auto) emplace_at(std::size_t ind, handle_type ent, arg_Ts&&... args) { }
 		
-		template<typename ... arg_Ts> requires (std::is_void_v<storage_type> || std::is_constructible_v<value_type, arg_Ts...>)
-		constexpr decltype(auto) emplace_at(std::size_t ind, handle_type ent, arg_Ts&&... args) { }
+		//template<typename ... arg_Ts> requires (std::is_void_v<storage_type> || std::is_constructible_v<value_type, arg_Ts...>)
+		//constexpr void emplace_at(std::size_t ind, std::span<handle_type> ents, arg_Ts&&... args) { }
 
-		// template<typename seq_T=policy::swap_pop, typename ... arg_Ts> requires (std::is_void_v<storage_type> || std::is_constructible_v<value_type, arg_Ts...>)
-		// constexpr decltype(auto) emplace_at(std::size_t ind, std::span<handle_type> ents, arg_Ts&&... args) { }
+		constexpr void erase(handle_type ent) { 
+			// event_terminate_enabled
+		}
 
-		
-		constexpr void erase(handle_type ent) { }
+		//constexpr void erase_at(std::size_t hnd) { }
 
-		// template<typename exec_T=ecs::policy::swap_pop>
-		// constexpr bool erase(std::span<handle_type> ents) { }
+		//constexpr void erase(std::span<handle_type> ents) { }
 
-		constexpr void erase_at(std::size_t ind) { }
-
-		// template<typename exec_T=ecs::policy::swap_pop>
-		// constexpr bool erase_at(std::size_t ind, std::size_t n) { }
+		//constexpr void erase_at(std::span<std::size_t> inds) { }
 
 		constexpr void clear() {
-			// invoke terminate event
-			/*
-			if constexpr (event_terminate_enabled) {
-				if constexpr (requires { reg->template get_resource<const storage_type>(); }) {
-				
-				
-				} else {
-					
-				}
-
-
-				if constexpr (storage_enabled) { // ERROR: Use of undeclared identifier 'storage_enabled'
-					auto& manager = reg->template get_resource<manager_type>();
-					auto& storage = reg->template get_resource<storage_type>();
-					
-					auto invoker = reg->template on<event::terminate<T>>();
-					for (std::size_t pos = 0; pos < size(); ++pos) {
-						invoker.invoke(manager[pos], storage[pos]);
-					}
-				} else {
-					auto& manager = reg->template get_resource<manager_type>();
-					
-					auto invoker = reg->template on<event::terminate<T>>();
-					for (std::size_t pos = 0; pos < size(); ++pos) {
-						invoker.invoke(manager[pos]);
+			if constexpr (event_terminate_enabled) { // invoke terminate event
+				auto invoker = reg.template on<event::terminate<T>>();
+				for (std::size_t pos = 0; pos < size(); ++pos) {
+					if constexpr (storage_enabled) {
+						invoker.invoke(at(pos), component_at(pos));
+					} else {
+						invoker.invoke(at(pos));
 					}
 				}
 			}
-			*/
-			
-			reg->template get_resource<manager_type>().clear();
-			reg->template get_resource<indexer_type>().clear();
-			reg->template get_resource<storage_type>().clear();
+
+			if constexpr (manager_enabled) {
+				reg.template get_attribute<manager_type>().clear();
+			}
+			if constexpr (indexer_enabled && !shared_manager_indexer) {
+				reg.template get_attribute<indexer_type>().clear();
+			}
+			if constexpr (indexer_enabled && !shared_manager_storage && !shared_indexer_storage) {
+				reg.template get_attribute<storage_type>().clear();
+			}
 		}
 
-		void sync() {
-			// check last component if in rope
-			// iterate from the back
-			// select if erase or insert
-			// iterate through updated index lookups
-			
-			// std::size_t curr_ind = index_of(curr);
-			// handle_type& next = manager.at(curr_ind);
-			// std::size_t next_ind = index_of(next);
-
-			// std::swap(curr, next);
-			
-
-
-		}
 
 	private:
-		reg_T* reg;
+		reg_T& reg;
 	};
 }

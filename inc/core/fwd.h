@@ -4,32 +4,33 @@
 
 // tags
 namespace ecs::tag {
-	struct resource { };
-	struct entity { };
-	struct component { };
-	struct event { };
-	
-	namespace policy {
-		struct exec { };
-		struct seq { };
-	};
-
-	// special resource
-	template<typename ... Ts> struct resource_set { };
+	struct attribute { }; /* singletons instanced once per registry */ 
+	struct entity { }; /* a table ID, with which multiple components can associate */ 
+	struct component { }; /* a data point which can dynamically associate with an entity */ 
 
 	// special component
-	template<typename T, typename ... Ts> struct archetype { };
-	template<typename T, typename ... Ts> struct uniontype { };
+	/* a valueless and non iterable component */
+	struct flag { };
+	/* a data point unassociated with an entity type */
+	struct unit { };
+	/* a callback that executes attached listeners */
+	struct event { };
+	/* a component */
+	struct resource { };
+
+	template<typename ... Ts> struct archetype;
+	template<> struct archetype<> { };
+	template<typename ... Ts> struct archetype : archetype<> { };
+
+	template<typename ... Ts> struct uniontype;
+	template<> struct uniontype<> { };
+	template<typename ... Ts> struct uniontype : uniontype<> { };
 }
 
 namespace ecs::traits {
-	template<typename T> struct is_resource;
-	template<typename T> static constexpr bool is_resource_v = is_resource<T>::value;
-	template<typename T> concept resource_class = is_resource<T>::value;
-
-	template<typename T> struct is_event;
-	template<typename T> static constexpr bool is_event_v = is_event<T>::value;
-	template<typename T> concept event_class = is_event<T>::value;
+	template<typename T> struct is_attribute;
+	template<typename T> static constexpr bool is_attribute_v = is_attribute<T>::value;
+	template<typename T> concept attribute_class = is_attribute<T>::value;
 
 	template<typename T> struct is_entity;
 	template<typename T> static constexpr bool is_entity_v = is_entity<T>::value;
@@ -39,27 +40,25 @@ namespace ecs::traits {
 	template<typename T> static constexpr bool is_component_v = is_component<T>::value;
 	template<typename T> concept component_class = is_component<T>::value;
 
-	template<typename T, typename=void> struct get_traits;
-	template<typename T> using get_traits_t = typename get_traits<T>::type;
+	template<typename T> struct is_event;
+	template<typename T> static constexpr bool is_event_v = is_event<T>::value;
+	template<typename T> concept event_class = is_event<T>::value;
 
 	template<typename, typename=void, typename=void> struct view_builder;
-
-	template<typename reg_T, typename T> struct is_accessible;
-	template<typename reg_T, typename T> static constexpr bool is_accessible_v = is_accessible<reg_T, T>::value;
 }
 
 // fwd
 namespace ecs {
-	template<ecs::traits::resource_class res_T> struct cache;
-	template<typename ... Ts> class registry; // Ts=event or entity or component or resource
+	template<typename ... Ts> class registry;
 	
 	// handle primitive
 	struct tombstone { };
+	template<std::unsigned_integral T, std::size_t N> struct index;
+	template<std::unsigned_integral T, std::size_t N> struct version;
 	template<std::unsigned_integral T, std::size_t N> struct handle;
 	
 	// mutex primitives
 	enum class priority { LOW = 0, MEDIUM = 1, HIGH = 2 };
-	struct null_mutex;
 	struct priority_mutex;
 	struct priority_shared_mutex;
 
@@ -67,24 +66,22 @@ namespace ecs {
 	struct entity;
 	template<ecs::traits::event_class T> struct event_entity;
 
-	// resource classes
+	// attributes
 	template<ecs::traits::entity_class ent_T>     struct factory;
+	template<ecs::traits::entity_class ent_T>     struct archive;
 	template<ecs::traits::component_class comp_T> struct manager;
 	template<ecs::traits::component_class comp_T> struct indexer;
-	template<ecs::traits::component_class comp_T> struct storage;
-
+	template<ecs::traits::component_class T>      struct storage;
 	
-	// component
+	// components
 	template<ecs::traits::event_class T> struct listener;
-	template<ecs::traits::event_class T> struct once_tag;
 
 	// events
 	namespace event {		
-		template<traits::component_class T> struct initialize;
-		template<traits::component_class T> struct terminate;
-		
 		template<traits::entity_class T> struct create;
 		template<traits::entity_class T> struct destroy;
+		template<traits::component_class T> struct initialize;
+		template<traits::component_class T> struct terminate;
 	}
 
 	// services
@@ -98,10 +95,15 @@ namespace ecs {
 	struct view_sentinel;
 	
 	// view decorators
-	template<typename ... Ts> requires ((traits::is_entity_v<Ts> || traits::is_component_v<Ts>) && ...) struct select { };
+	template<typename ... Ts> struct select { };
 	template<traits::component_class T> struct from { };
 	template<typename ... Ts> struct where { };
+
 	template<traits::component_class ... Ts> struct inc;
 	template<traits::component_class ... Ts> struct exc;
 	template<traits::component_class T>		 struct cnd;
+
+	template<typename T, typename page_T, typename alloc_T> struct packed;
+	template<typename T, typename page_T, typename alloc_T> struct sparse;
+
 }

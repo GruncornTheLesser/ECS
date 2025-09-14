@@ -1,88 +1,111 @@
 #pragma once
 #include "core/traits.h"
+#include "containers/sparse_list.h"
 
 namespace ecs {
+	template<traits::entity_class T>
+	struct factory {
+		using ecs_category = tag::attribute;
+	private:
+		using handle_type = traits::entity::get_handle_t<T>;
+		using integral_type = traits::handle::get_attrib_integral_t<handle_type>;
+		static constexpr std::size_t version_width = traits::handle::get_attrib_version_width_v<handle_type>;
+		
+	private:
+		// creator function
+    };
+
+	template<traits::entity_class T>
+	struct archive {
+		using ecs_category = tag::attribute;
+	private:
+		using handle_type = traits::entity::get_handle_t<T>;
+		using integral_type = traits::handle::get_attrib_integral_t<handle_type>;
+		static constexpr std::size_t version_width = traits::handle::get_attrib_version_width_v<handle_type>;
+		
+	private:
+		// list of old entities
+    };
+
 	template<ecs::traits::entity_class T, typename reg_T>
 	class generator {
 	public:
 		using registry_type = reg_T;
 		using entity_type = T;
 		using handle_type = traits::entity::get_handle_t<T>;
-		using value_view = typename handle_type::value_view;
-		using version_view = typename handle_type::version_view;
-		using integral_type = typename handle_type::integral_type;
-		using factory_type = traits::entity::get_factory_t<T>;
-		using create_event = traits::entity::get_create_event_t<T>;
+		using integral_type = traits::entity::get_integral_t<T>;
+		using factory_type =  traits::entity::get_factory_t<T>;
+		using create_event =  traits::entity::get_create_event_t<T>;
 		using destroy_event = traits::entity::get_destroy_event_t<T>;
+		
+		static constexpr bool create_event_enabled = !std::is_void_v<create_event>;
+		static constexpr bool destroy_event_enabled = !std::is_void_v<destroy_event>;
+		static constexpr bool factory_enabled = !std::is_void_v<factory_type>;
+		
 
-		inline constexpr generator(reg_T* reg) noexcept : reg(reg) { }
+		inline constexpr generator(reg_T& reg) noexcept : reg(reg) { }
 		
 		constexpr handle_type create() {
-			auto& factory = reg->template get_resource<factory_type>();
-
 			handle_type hnd;
-
-			if (factory.empty())
-			{
-				hnd = handle_type{ };
-				factory.push_back(hnd);
-			} 
-			else if (handle_type next = factory.back(); next != tombstone{ })
-			{
-				hnd = handle_type{ factory.size(), { } };
-				factory.push_back(hnd);
-			}
-			else if (value_view{ next } == 0ull)
-			{
-				hnd = { factory.size() - 1, ++version_view{ factory.back() } };
-				factory.back() = hnd;
-			}
-			else
-			{
+			/*
+			if constexpr (factory_enabled) {
+				auto& ossuary = reg.template get_attribute<ossuary_type>();
+				auto& factory = reg.template get_attribute<factory_type>();
 				
-			}
-
-			if constexpr (!std::is_void_v<create_event>) {
-				reg->template on<create_event>().invoke(hnd);	// invoke create event
+				hnd = factory.resurrect(ossuary.back());
+				ossuary.pop_back();
+			} else if constexpr (factory_enabled) {
+				auto& factory = reg.template get_attribute<factory_type>();
+				
+				hnd = factory.create();
+			} else if constexpr (ossuary_enabled) {
+				auto& ossuary = reg.template get_attribute<ossuary_type>();
+				
+				hnd = ossuary.back();
+				ossuary.pop_back();
 			}
 			
+			if constexpr (create_event_enabled) {
+				reg.template on<create_event>().invoke(hnd);
+			}
+			*/
 			return hnd;
 		}
 		
-		constexpr void destroy(handle_type ent) {
+		constexpr void destroy(handle_type hnd) {
 			/*
-			auto& factory = reg->template get_resource<factory_type>();
-
-
-			if (factory.empty()) { 																			// if no active handles
-				return;
-			} else if (integral_type ind = value_view{ ent }; value_view{ factory[ind - 1] } != ind) {			// if handle already inactive
-				return;
-			} else if (integral_type next = value_view{ factory.back() }; next == factory.size()) { 		// if no head to inactive list
-				emplace_back(handle_type{ ind, -1 });
-			} else { 																						// if multiple inactive handles
-				factory[ind] = handle_type{ value_view{ factory.back() }, factory[ind] };
-				factory.back() = handle_type{ ind, factory.back() };
+			if constexpr (ossuary_enabled) {
+				auto& ossuary = reg.template get_attribute<ossuary_type>();
+				ossuary.push_back(hnd);
+			}
+			
+			if constexpr (factory_enabled) {
+				auto& factory = reg.template get_attribute<factory_type>();
+				factory.destroy(hnd);
 			}
 
-
-
-			
-			using entity_component_set = util::filter_t<traits::registry::get_attrib_component_set_t<reg_T>, 
-				util::cmp::to_<entity_type, std::is_same, traits::component::get_entity>::template type>;
-			util::apply<entity_component_set>([&]<typename ... Ts>() { (reg->template pool<Ts>().erase(ent), ...); });
-			
+			if constexpr (destroy_event_enabled) {
+				reg.template on<destroy_event>().invoke(hnd);
+			}
 			*/
 		}
 
 		constexpr bool alive(handle_type hnd) {
-			auto& fact = reg->template get_resource<factory_type>();
-			return hnd == fact.active[value_view{ hnd }];
+			/*
+			if constexpr (ossuary_enabled) {
+				if (reg.template get_attribute<ossuary_type>().contains(hnd)) return false;
+			}
+
+			if constexpr (factory_enabled) {
+				if (!reg.template get_attribute<factory_type>().alive(hnd)) return false;
+			}
+			*/
+			return true;
 		}
 	
 		constexpr void clear() {
 			/*
-			auto& fact = reg->template get_resource<factory_type>();
+			auto& fact = reg.template get_attribute<factory_type>();
 			
 			if constexpr (traits::is_accessible_v<reg_T, event::destroy<entity_type>>)
 			{
@@ -90,7 +113,7 @@ namespace ecs {
 				{
 					handle_type hnd = fact.active[i];
 					if (static_cast<integral_type>(value_view{ hnd }) == i) {
-						reg->template on<event::destroy<entity_type>>().invoke(hnd);
+						reg.template on<event::destroy<entity_type>>().invoke(hnd);
 					}
 				}
 			}
@@ -100,6 +123,6 @@ namespace ecs {
 			*/
 		}
 	private:
-		reg_T* reg;
+		reg_T& reg;
 	};
 }

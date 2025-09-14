@@ -4,65 +4,52 @@
 
 namespace ecs
 {
-	struct null_mutex {
-		void lock(priority p = priority::MEDIUM) { }
-		void unlock() { }
-	};
-
-	struct priority_shared_mutex
-	{
+	struct priority_shared_mutex {
 	public:
-		void lock(priority p = priority::MEDIUM)
-		{
+		void lock(priority p = priority::MEDIUM) {
 			std::unique_lock lk(mtx);
-			if (current != 0)
-			{
-				++exclusive_queue_count[static_cast<std::size_t>(p)];
-				exclusive_queue[static_cast<std::size_t>(p)].wait(lk);
-				--exclusive_queue_count[static_cast<std::size_t>(p)];
+
+			if (lock_count != 0) {
+				++exclusive_queue_count[static_cast<std::size_t>(p)];  // increment wait count
+				exclusive_queue[static_cast<std::size_t>(p)].wait(lk); // wait on cnd var
+				--exclusive_queue_count[static_cast<std::size_t>(p)];  // de-increment wait count
 			}
-			current = -1;
+			lock_count = -1; // set lock_count to max
 		}
-		void unlock()
-		{
+		void unlock() {
 			std::unique_lock lk(mtx);
-			current = 0;
-			notify_next();
+
+			lock_count = 0; // clear lock_count
+			notify();	   // notify next
 
 		}
 
-		void lock_shared(priority p = priority::MEDIUM)
-		{
+		void lock_shared(priority p = priority::MEDIUM) {
 			std::unique_lock lk(mtx);
-			if (current != 0)
-			{
-				++shared_queue_count[static_cast<std::size_t>(p)];
-				shared_queue.wait(lk);
-				--shared_queue_count[static_cast<std::size_t>(p)];
+
+			if (lock_count != 0) {
+				++shared_queue_count[static_cast<std::size_t>(p)]; // increment wait count
+				shared_queue.wait(lk);							 // wait on cnd var
+				--shared_queue_count[static_cast<std::size_t>(p)]; // de increment wait count
 			}
-			++current;
+			++lock_count; // increment lock count
 		}
-		void unlock_shared()
-		{
+		void unlock_shared() {
 			std::unique_lock lk(mtx);
-			--current;
-			if (current == 0) notify_next();
+
+			if (--lock_count == 0) notify(); // if all locks released, notify next
 		}
 
 	private:
-		void notify_next()
-		{
-			for (int i = 0; i < 3; ++i)
-			{
-				if (exclusive_queue_count[i])
-				{
-					exclusive_queue[i].notify_one();
+		void notify() {
+			for (int i = 0; i < 3; ++i) {
+				if (exclusive_queue_count[i]) {	  // if thread waiting with priority
+					exclusive_queue[i].notify_one(); // notify exclusive lock request
 					return;
 				}
 
-				if (shared_queue_count[i])
-				{
-					shared_queue.notify_all();
+				if (shared_queue_count[i]) {   // if thread waiting with priority i
+					shared_queue.notify_all(); // notify all shared lock request
 					return;
 				}
 			}
@@ -71,41 +58,33 @@ namespace ecs
 		std::mutex mtx;
 		std::condition_variable shared_queue;
 		std::condition_variable exclusive_queue[3];
-		std::size_t exclusive_queue_count[3]{ 0,0,0 };
-		std::size_t shared_queue_count[3]{ 0,0,0 };
-		std::size_t current { 0 };
+		std::size_t exclusive_queue_count[3] { 0, 0, 0 };
+		std::size_t shared_queue_count[3] { 0, 0, 0 };
+		std::size_t lock_count { 0 };
 	};
 
-	struct priority_mutex
-	{
+	struct priority_mutex {
 	public:
-		void lock(priority p = priority::MEDIUM)
-		{
+		void lock(priority p = priority::MEDIUM) {
 			std::unique_lock lk(mtx);
-			if (current != 0)
-			{
-				++exclusive_queue_count[static_cast<std::size_t>(p)];
-				exclusive_queue[static_cast<std::size_t>(p)].wait(lk);
-				--exclusive_queue_count[static_cast<std::size_t>(p)];
+			if (lock_count != 0) {
+				++exclusive_queue_count[static_cast<std::size_t>(p)];  // increment wait count
+				exclusive_queue[static_cast<std::size_t>(p)].wait(lk); // wait on cnd var
+				--exclusive_queue_count[static_cast<std::size_t>(p)];  // de-increment wait count
 			}
-			current = -1;
+			lock_count = -1; // raise lock flag
 		}
-		void unlock()
-		{
+		void unlock() {
 			std::unique_lock lk(mtx);
-			current = 0;
-			notify_next();
-
+			lock_count = 0; // lower lock flag
+			notify();   	// notify next
 		}
 
 	private:
-		void notify_next()
-		{
-			for (int i = 0; i < 3; ++i)
-			{
-				if (exclusive_queue_count[i])
-				{
-					exclusive_queue[i].notify_one();
+		void notify() {
+			for (int i = 0; i < 3; ++i) {
+				if (exclusive_queue_count[i]) {	  // if thread waiting with priority i
+					exclusive_queue[i].notify_one(); // notify next
 					return;
 				}
 			}
@@ -113,7 +92,7 @@ namespace ecs
 
 		std::mutex mtx;
 		std::condition_variable exclusive_queue[3];
-		std::size_t exclusive_queue_count[3]{ 0,0,0 };
-		std::size_t current { 0 };
+		std::size_t exclusive_queue_count[3]{ 0, 0, 0 };
+		std::size_t lock_count { 0 };
 	};
 }

@@ -5,32 +5,27 @@
 #include <algorithm>
 
 namespace ecs {
-    template<typename T, std::size_t page_size=4096>
-    class page : public std::span<T, page_size> {
-        page(T* data) : std::span<T, page_size>(data) { }
-    };
-
-	template<typename T, typename Page_T=page<T, 4096>, typename Page_Alloc_T=std::allocator<Page_T>>
+	template<typename T, typename Page_T=std::span<T, 4096>, typename ALloc_T=std::allocator<T>>
 	class packed;
 
-	template<typename T, typename Page_T=page<T, 4096>, typename Page_Alloc_T=std::allocator<Page_T>>
+	template<typename T, typename Page_T=std::span<T, 4096>, typename ALloc_T=std::allocator<T>>
 	class packed_iterator;
 
-	template<typename T, typename Page_T, typename Page_Alloc_T>
+	template<typename T, typename Page_T, typename Alloc_T>
 	class packed {
 	public:
 		using page_type = Page_T;
-		using page_allocator_type = Page_Alloc_T;
+		using allocator_type = Alloc_T; 
+		using page_allocator_type = std::allocator_traits<allocator_type>::template rebind_alloc<page_type>;
 		static constexpr size_t page_size = page_type::extent;
 		using value_type = page_type::value_type;
-		using allocator_type = std::allocator_traits<page_allocator_type>::template rebind_alloc<value_type>;
 
 		using pointer = T*;
 		using reference = T&;
-        using const_pointer = const T*;
-        using const_reference = const T&;
-		using iterator = packed_iterator<T, page_type, page_allocator_type>;
-		using const_iterator = packed_iterator<const T, page_type, page_allocator_type>;
+		using const_pointer = const T*;
+		using const_reference = const T&;
+		using iterator = packed_iterator<T, page_type, allocator_type>;
+		using const_iterator = packed_iterator<const T, page_type, allocator_type>;
 		using reverse_iterator = std::reverse_iterator<iterator>;
 		using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 	public:
@@ -52,9 +47,9 @@ namespace ecs {
 		constexpr packed& operator=(std::initializer_list<T> ilist);
 
 		template<std::input_iterator It>
-		void assign(It first, It last);
-		void assign(size_t n, const T& value);
-		void assign(std::initializer_list<T> ilist);
+		constexpr void assign(It first, It last);
+		constexpr void assign(size_t n, const T& value);
+		constexpr void assign(std::initializer_list<T> ilist);
 
 		constexpr allocator_type get_allocator() const noexcept;
 		constexpr page_allocator_type get_page_allocator() const noexcept;
@@ -125,14 +120,15 @@ namespace ecs {
 		std::vector<page_type, page_allocator_type> pages;
 	};
 
-	template<typename T, typename Page_T, typename Page_Alloc_T>
+	template<typename T, typename Page_T, typename Alloc_T>
 	class packed_iterator {
 	public:
 		using page_type = Page_T;
-		using page_allocator_type = Page_Alloc_T;
+		using allocator_type = Alloc_T;
+		using page_allocator_type = std::allocator_traits<allocator_type>::template rebind_alloc<page_type>;
+		
 		static constexpr size_t page_size = page_type::extent;
 		using value_type = typename page_type::value_type;
-		using allocator_type = std::allocator_traits<page_allocator_type>::template rebind_alloc<value_type>;
 		
 		using difference_type = std::ptrdiff_t;
 		using pointer = value_type*;
@@ -141,14 +137,14 @@ namespace ecs {
 		using iterator_category = std::random_access_iterator_tag;
 
 		using base_range = std::conditional_t<std::is_const_v<T>,
-			const packed<std::remove_const_t<T>, page_type, page_allocator_type>,
-			packed<T, page_type, page_allocator_type>>;
+			const packed<std::remove_const_t<T>, page_type, allocator_type>,
+			packed<T, page_type, allocator_type>>;
 	public:
 		constexpr packed_iterator();
 		constexpr packed_iterator(base_range* base, size_t index);
-		constexpr packed_iterator(base_range* base, uint16_t page_index, uint16_t elem_index);
+		constexpr packed_iterator(base_range* base, uint32_t page_index, uint32_t elem_index);
 
-		constexpr operator packed_iterator<const T, Page_Alloc_T>() const;
+		constexpr operator packed_iterator<const T, Alloc_T>() const;
 
 		constexpr reference operator*() const;
 		constexpr page_type& get_page() const;
@@ -173,25 +169,25 @@ namespace ecs {
 		constexpr difference_type operator-(const packed_iterator& other) const;
 
 		constexpr size_t get_index() const;
-		constexpr std::pair<uint16_t, uint16_t> get_indices() const;
+		constexpr std::pair<uint32_t, uint32_t> get_indices() const;
 	
 	private:
 		base_range* range;
-		uint16_t page_index;
-		uint16_t elem_index;
+		uint32_t page_index;
+		uint32_t elem_index;
 	};
 
-	template<typename T, typename Page_T, typename Page_Alloc_T>
-	packed_iterator<T, Page_T, Page_Alloc_T> operator+(std::ptrdiff_t n, const packed_iterator<T, Page_T, Page_Alloc_T>& it);
+	template<typename T, typename Page_T, typename Alloc_T>
+	packed_iterator<T, Page_T, Alloc_T> operator+(std::ptrdiff_t n, const packed_iterator<T, Page_T, Alloc_T>& it);
 }
 
 // constructors
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::packed(const allocator_type& elem_alloc, const page_allocator_type& page_alloc) noexcept
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::packed(const allocator_type& elem_alloc, const page_allocator_type& page_alloc) noexcept
  : extent(0), pages(page_alloc) { }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::packed(size_t n, const allocator_type& elem_alloc, const page_allocator_type& page_alloc)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::packed(size_t n, const allocator_type& elem_alloc, const page_allocator_type& page_alloc)
  : extent(n), pages(page_alloc)
 {
 	reserve(extent);
@@ -201,8 +197,8 @@ constexpr ecs::packed<T, Page_T, Page_Alloc_T>::packed(size_t n, const allocator
 	std::uninitialized_default_construct_n(pages.back().data(), extent % page_size);
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::packed(size_t n, const T& value, const allocator_type& elem_alloc, const page_allocator_type& page_alloc)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::packed(size_t n, const T& value, const allocator_type& elem_alloc, const page_allocator_type& page_alloc)
  : extent(n), pages(page_alloc)
 {
 	reserve(extent);
@@ -212,8 +208,8 @@ constexpr ecs::packed<T, Page_T, Page_Alloc_T>::packed(size_t n, const T& value,
 	std::uninitialized_fill_n(pages.back().data(), extent % page_size, value);
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T> template<std::input_iterator It>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::packed(It first, It last, const allocator_type& elem_alloc, const page_allocator_type& page_alloc)
+template<typename T, typename Page_T, typename Alloc_T> template<std::input_iterator It>
+constexpr ecs::packed<T, Page_T, Alloc_T>::packed(It first, It last, const allocator_type& elem_alloc, const page_allocator_type& page_alloc)
  : extent(last - first), pages(page_alloc)
 {
 	reserve(extent);
@@ -223,8 +219,8 @@ constexpr ecs::packed<T, Page_T, Page_Alloc_T>::packed(It first, It last, const 
 	std::uninitialized_copy_n(first, extent % page_size, pages.back().data());
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::packed(const packed& other) // copy constructor
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::packed(const packed& other) // copy constructor
  : extent(other.extent), pages(other.pages.get_allocator())
 {
 	reserve(extent);
@@ -235,16 +231,16 @@ constexpr ecs::packed<T, Page_T, Page_Alloc_T>::packed(const packed& other) // c
 
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::packed(packed&& other) // move constructor
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::packed(packed&& other) // move constructor
  : extent(other.extent), pages(std::move(other.pages)) { }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::packed(std::initializer_list<T> ilist, const allocator_type& elem_alloc, const page_allocator_type& page_alloc)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::packed(std::initializer_list<T> ilist, const allocator_type& elem_alloc, const page_allocator_type& page_alloc)
  : packed(ilist.begin(), ilist.end(), elem_alloc, page_alloc) { }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::~packed()
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::~packed()
 {
 	if (pages.data() != nullptr)
 	{
@@ -266,17 +262,17 @@ constexpr ecs::packed<T, Page_T, Page_Alloc_T>::~packed()
 	}
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>&
-ecs::packed<T, Page_T, Page_Alloc_T>::operator=(const packed& other) // copy assignment
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>&
+ecs::packed<T, Page_T, Alloc_T>::operator=(const packed& other) // copy assignment
 {
 	assign(other.begin(), other.end());
 	return *this;
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>&
-ecs::packed<T, Page_T, Page_Alloc_T>::operator=(packed&& other) // move assignment
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>&
+ecs::packed<T, Page_T, Alloc_T>::operator=(packed&& other) // move assignment
 {
 	if (this != &other)
 	{
@@ -286,17 +282,17 @@ ecs::packed<T, Page_T, Page_Alloc_T>::operator=(packed&& other) // move assignme
 	return *this;
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>&
-ecs::packed<T, Page_T, Page_Alloc_T>::operator=(std::initializer_list<T> ilist)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>&
+ecs::packed<T, Page_T, Alloc_T>::operator=(std::initializer_list<T> ilist)
 {
 	assign(ilist);
 	return *this;
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
+template<typename T, typename Page_T, typename Alloc_T>
 template<std::input_iterator It>
-void ecs::packed<T, Page_T, Page_Alloc_T>::assign(It first, It last)
+constexpr void ecs::packed<T, Page_T, Alloc_T>::assign(It first, It last)
 {
 	size_t count = last - first;
 	if (count == 0) return;
@@ -356,8 +352,8 @@ void ecs::packed<T, Page_T, Page_Alloc_T>::assign(It first, It last)
 	extent = count;
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-void ecs::packed<T, Page_T, Page_Alloc_T>::assign(size_t count, const T& value)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr void ecs::packed<T, Page_T, Alloc_T>::assign(size_t count, const T& value)
 {
 	if (count == 0) return;
 
@@ -410,145 +406,145 @@ void ecs::packed<T, Page_T, Page_Alloc_T>::assign(size_t count, const T& value)
 	extent = count;
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-void ecs::packed<T, Page_T, Page_Alloc_T>::assign(std::initializer_list<T> ilist)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr void ecs::packed<T, Page_T, Alloc_T>::assign(std::initializer_list<T> ilist)
 {
 	assign(ilist.begin(), ilist.end());
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::allocator_type
-ecs::packed<T, Page_T, Page_Alloc_T>::get_allocator() const noexcept
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::allocator_type
+ecs::packed<T, Page_T, Alloc_T>::get_allocator() const noexcept
 {
 	return pages.get_allocator();
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::page_allocator_type
-ecs::packed<T, Page_T, Page_Alloc_T>::get_page_allocator() const noexcept
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::page_allocator_type
+ecs::packed<T, Page_T, Alloc_T>::get_page_allocator() const noexcept
 {
 	return pages.get_allocator();
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::iterator
-ecs::packed<T, Page_T, Page_Alloc_T>::begin() noexcept
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::iterator
+ecs::packed<T, Page_T, Alloc_T>::begin() noexcept
 {
 	return { this, 0, 0 };
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::const_iterator
-ecs::packed<T, Page_T, Page_Alloc_T>::begin() const noexcept
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::const_iterator
+ecs::packed<T, Page_T, Alloc_T>::begin() const noexcept
 {
 	return cbegin();
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::iterator
-ecs::packed<T, Page_T, Page_Alloc_T>::end() noexcept
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::iterator
+ecs::packed<T, Page_T, Alloc_T>::end() noexcept
 {
 	return { this, extent };
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::const_iterator
-ecs::packed<T, Page_T, Page_Alloc_T>::end() const noexcept
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::const_iterator
+ecs::packed<T, Page_T, Alloc_T>::end() const noexcept
 {
 	return cend();
 }
 
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::reverse_iterator
-ecs::packed<T, Page_T, Page_Alloc_T>::rbegin() noexcept
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::reverse_iterator
+ecs::packed<T, Page_T, Alloc_T>::rbegin() noexcept
 {
 	return iterator{ this, extent - 1 };
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::const_reverse_iterator
-ecs::packed<T, Page_T, Page_Alloc_T>::rbegin() const noexcept
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::const_reverse_iterator
+ecs::packed<T, Page_T, Alloc_T>::rbegin() const noexcept
 {
 	return crbegin();
 }
 
 
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::reverse_iterator
-ecs::packed<T, Page_T, Page_Alloc_T>::rend() noexcept
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::reverse_iterator
+ecs::packed<T, Page_T, Alloc_T>::rend() noexcept
 {
 	return iterator{ this, -1, page_size - 1 };
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::const_reverse_iterator
-ecs::packed<T, Page_T, Page_Alloc_T>::rend() const noexcept
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::const_reverse_iterator
+ecs::packed<T, Page_T, Alloc_T>::rend() const noexcept
 {
 	return crend();
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::const_iterator
-ecs::packed<T, Page_T, Page_Alloc_T>::cbegin() const noexcept
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::const_iterator
+ecs::packed<T, Page_T, Alloc_T>::cbegin() const noexcept
 {
 	return { this, 0, 0 };
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::const_iterator
-ecs::packed<T, Page_T, Page_Alloc_T>::cend() const noexcept
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::const_iterator
+ecs::packed<T, Page_T, Alloc_T>::cend() const noexcept
 {
 	return { this, extent };
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::const_reverse_iterator
-ecs::packed<T, Page_T, Page_Alloc_T>::crbegin() const noexcept
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::const_reverse_iterator
+ecs::packed<T, Page_T, Alloc_T>::crbegin() const noexcept
 {
 	return const_iterator{ this, extent - 1 };
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::const_reverse_iterator
-ecs::packed<T, Page_T, Page_Alloc_T>::crend() const noexcept
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::const_reverse_iterator
+ecs::packed<T, Page_T, Alloc_T>::crend() const noexcept
 {
 	return const_iterator{ this, -1, page_size - 1 }; // last element of page -1
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr bool ecs::packed<T, Page_T, Page_Alloc_T>::empty() const noexcept
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr bool ecs::packed<T, Page_T, Alloc_T>::empty() const noexcept
 {
 	return extent == 0;
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr size_t ecs::packed<T, Page_T, Page_Alloc_T>::max_size() const noexcept
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr size_t ecs::packed<T, Page_T, Alloc_T>::max_size() const noexcept
 {
-	return page_size * static_cast<uint16_t>(-1);
+	return page_size * static_cast<uint32_t>(-1);
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr size_t ecs::packed<T, Page_T, Page_Alloc_T>::size() const
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr size_t ecs::packed<T, Page_T, Alloc_T>::size() const
 {
 	return extent;
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr size_t ecs::packed<T, Page_T, Page_Alloc_T>::page_count() const
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr size_t ecs::packed<T, Page_T, Alloc_T>::page_count() const
 {
 	return pages.size();
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr size_t ecs::packed<T, Page_T, Page_Alloc_T>::capacity() const
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr size_t ecs::packed<T, Page_T, Alloc_T>::capacity() const
 {
 	return page_count() * page_size;
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr void ecs::packed<T, Page_T, Page_Alloc_T>::resize(size_t n)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr void ecs::packed<T, Page_T, Alloc_T>::resize(size_t n)
 {
 	size_t page_n = extent / page_size;
 	size_t elem_n = extent % page_size;
@@ -589,8 +585,8 @@ constexpr void ecs::packed<T, Page_T, Page_Alloc_T>::resize(size_t n)
 	extent = n;
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr void ecs::packed<T, Page_T, Page_Alloc_T>::resize(size_t n, const T& value)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr void ecs::packed<T, Page_T, Alloc_T>::resize(size_t n, const T& value)
 {
 	size_t page_n = extent / page_size;
 	size_t elem_n = extent % page_size;
@@ -631,8 +627,8 @@ constexpr void ecs::packed<T, Page_T, Page_Alloc_T>::resize(size_t n, const T& v
 	extent = n;
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr void ecs::packed<T, Page_T, Page_Alloc_T>::reserve(size_t n)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr void ecs::packed<T, Page_T, Alloc_T>::reserve(size_t n)
 {
 	if (n == 0) return;
 	
@@ -647,8 +643,8 @@ constexpr void ecs::packed<T, Page_T, Page_Alloc_T>::reserve(size_t n)
 	}
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr void ecs::packed<T, Page_T, Page_Alloc_T>::shrink_to_fit()
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr void ecs::packed<T, Page_T, Alloc_T>::shrink_to_fit()
 {
 	size_t page_end = (extent / page_size);
 	// deallocate pages
@@ -661,96 +657,96 @@ constexpr void ecs::packed<T, Page_T, Page_Alloc_T>::shrink_to_fit()
 	pages.shrink_to_fit();
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::reference
-ecs::packed<T, Page_T, Page_Alloc_T>::operator[](size_t index)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::reference
+ecs::packed<T, Page_T, Alloc_T>::operator[](size_t index)
 {
 	return pages[index / page_size][index % page_size];
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::const_reference
-ecs::packed<T, Page_T, Page_Alloc_T>::operator[](size_t index) const
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::const_reference
+ecs::packed<T, Page_T, Alloc_T>::operator[](size_t index) const
 {
 	return pages[index / page_size][index % page_size];
 }
 
 // element access
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::reference
-ecs::packed<T, Page_T, Page_Alloc_T>::at(size_t pos)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::reference
+ecs::packed<T, Page_T, Alloc_T>::at(size_t pos)
 {
 	if (pos >= this->size()) throw std::out_of_range("paged vector index out of range");
 	return pages[pos / page_size][pos % page_size];
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::const_reference
-ecs::packed<T, Page_T, Page_Alloc_T>::at(size_t pos) const
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::const_reference
+ecs::packed<T, Page_T, Alloc_T>::at(size_t pos) const
 {
 	if (pos >= this->size()) throw std::out_of_range("paged vector index out of range");
 	return pages[pos / page_size][pos % page_size];
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::reference
-ecs::packed<T, Page_T, Page_Alloc_T>::front()
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::reference
+ecs::packed<T, Page_T, Alloc_T>::front()
 {
 	return pages[0][0];
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::const_reference
-ecs::packed<T, Page_T, Page_Alloc_T>::front() const
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::const_reference
+ecs::packed<T, Page_T, Alloc_T>::front() const
 {
 	return pages[0][0];
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::reference
-ecs::packed<T, Page_T, Page_Alloc_T>::back()
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::reference
+ecs::packed<T, Page_T, Alloc_T>::back()
 {
 	return at(extent - 1);
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::const_reference
-ecs::packed<T, Page_T, Page_Alloc_T>::back() const
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::const_reference
+ecs::packed<T, Page_T, Alloc_T>::back() const
 {
 	return at(extent - 1);
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::page_type&
-ecs::packed<T, Page_T, Page_Alloc_T>::get_page(size_t pos)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::page_type&
+ecs::packed<T, Page_T, Alloc_T>::get_page(size_t pos)
 {
 	return pages[pos];
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr const ecs::packed<T, Page_T, Page_Alloc_T>::page_type&
-ecs::packed<T, Page_T, Page_Alloc_T>::get_page(size_t pos) const
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr const ecs::packed<T, Page_T, Alloc_T>::page_type&
+ecs::packed<T, Page_T, Alloc_T>::get_page(size_t pos) const
 {
 	return pages[pos];
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::page_type*
-ecs::packed<T, Page_T, Page_Alloc_T>::data() noexcept
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::page_type*
+ecs::packed<T, Page_T, Alloc_T>::data() noexcept
 {
 	return pages.data();
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr const ecs::packed<T, Page_T, Page_Alloc_T>::page_type*
-ecs::packed<T, Page_T, Page_Alloc_T>::data() const noexcept
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr const ecs::packed<T, Page_T, Alloc_T>::page_type*
+ecs::packed<T, Page_T, Alloc_T>::data() const noexcept
 {
 	return pages.data();
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T> template<typename ... Arg_Ts>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::reference
-ecs::packed<T, Page_T, Page_Alloc_T>::emplace_back(Arg_Ts&&... args)
+template<typename T, typename Page_T, typename Alloc_T> template<typename ... Arg_Ts>
+constexpr ecs::packed<T, Page_T, Alloc_T>::reference
+ecs::packed<T, Page_T, Alloc_T>::emplace_back(Arg_Ts&&... args)
 {
 	reserve(++extent);
 	std::construct_at<T>(&back(), std::forward<Arg_Ts>(args)...);
@@ -758,32 +754,32 @@ ecs::packed<T, Page_T, Page_Alloc_T>::emplace_back(Arg_Ts&&... args)
 }
 
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr void ecs::packed<T, Page_T, Page_Alloc_T>::push_back(const T& value)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr void ecs::packed<T, Page_T, Alloc_T>::push_back(const T& value)
 {
 	size_t index = extent;
 	reserve(++extent);
 	std::construct_at(&pages[index / extent][index % page_size], value);
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr void ecs::packed<T, Page_T, Page_Alloc_T>::push_back(T&& value)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr void ecs::packed<T, Page_T, Alloc_T>::push_back(T&& value)
 {
 	size_t index = extent;
 	reserve(++extent);
 	std::construct_at(&pages[index / page_size][index % page_size], value);
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr void ecs::packed<T, Page_T, Page_Alloc_T>::pop_back()
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr void ecs::packed<T, Page_T, Alloc_T>::pop_back()
 {
 	std::destroy_at(&pages[extent / page_size][extent % page_size]);
 	--extent;
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T> template<typename ... Arg_Ts>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::iterator
-ecs::packed<T, Page_T, Page_Alloc_T>::emplace(const_iterator pos, Arg_Ts&&... args)
+template<typename T, typename Page_T, typename Alloc_T> template<typename ... Arg_Ts>
+constexpr ecs::packed<T, Page_T, Alloc_T>::iterator
+ecs::packed<T, Page_T, Alloc_T>::emplace(const_iterator pos, Arg_Ts&&... args)
 {
 	reserve(extent + 1);
 	iterator it = begin() + (pos - cbegin());
@@ -793,23 +789,23 @@ ecs::packed<T, Page_T, Page_Alloc_T>::emplace(const_iterator pos, Arg_Ts&&... ar
 	return it;
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::iterator
-ecs::packed<T, Page_T, Page_Alloc_T>::insert(const_iterator pos, const T& value)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::iterator
+ecs::packed<T, Page_T, Alloc_T>::insert(const_iterator pos, const T& value)
 {
 	return emplace(pos, value);
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::iterator
-ecs::packed<T, Page_T, Page_Alloc_T>::insert(const_iterator pos, T&& value)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::iterator
+ecs::packed<T, Page_T, Alloc_T>::insert(const_iterator pos, T&& value)
 {
 	return emplace(pos, std::move(value));
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::iterator
-ecs::packed<T, Page_T, Page_Alloc_T>::insert(const_iterator pos, size_t n, const T& value)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::iterator
+ecs::packed<T, Page_T, Alloc_T>::insert(const_iterator pos, size_t n, const T& value)
 {
 	iterator it = begin() + (pos - cbegin());
 	reserve(extent + n);
@@ -819,9 +815,9 @@ ecs::packed<T, Page_T, Page_Alloc_T>::insert(const_iterator pos, size_t n, const
 	return it;
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T> template<std::input_iterator It>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::iterator
-ecs::packed<T, Page_T, Page_Alloc_T>::insert(const_iterator pos, It first, It last)
+template<typename T, typename Page_T, typename Alloc_T> template<std::input_iterator It>
+constexpr ecs::packed<T, Page_T, Alloc_T>::iterator
+ecs::packed<T, Page_T, Alloc_T>::insert(const_iterator pos, It first, It last)
 {
 	size_t n = last - first;
 	iterator it = begin() + (pos - cbegin());
@@ -832,16 +828,16 @@ ecs::packed<T, Page_T, Page_Alloc_T>::insert(const_iterator pos, It first, It la
 	return it;
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::iterator
-ecs::packed<T, Page_T, Page_Alloc_T>::insert(const_iterator pos, std::initializer_list<T> ilist)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::iterator
+ecs::packed<T, Page_T, Alloc_T>::insert(const_iterator pos, std::initializer_list<T> ilist)
 {
 	return insert(pos, ilist.begin(), ilist.end());
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::iterator
-ecs::packed<T, Page_T, Page_Alloc_T>::erase(const_iterator pos, size_t n)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::iterator
+ecs::packed<T, Page_T, Alloc_T>::erase(const_iterator pos, size_t n)
 {
 	iterator it1 = begin() + (pos - cbegin());
 	iterator it2 = it1 + n;
@@ -853,9 +849,9 @@ ecs::packed<T, Page_T, Page_Alloc_T>::erase(const_iterator pos, size_t n)
 	return it1;
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed<T, Page_T, Page_Alloc_T>::iterator
-ecs::packed<T, Page_T, Page_Alloc_T>::erase(const_iterator first, const_iterator last)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed<T, Page_T, Alloc_T>::iterator
+ecs::packed<T, Page_T, Alloc_T>::erase(const_iterator first, const_iterator last)
 {
 	size_t n = (last - first);
 	iterator it1 = begin() + (first - cbegin());
@@ -868,15 +864,15 @@ ecs::packed<T, Page_T, Page_Alloc_T>::erase(const_iterator first, const_iterator
 	return it1;
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr void ecs::packed<T, Page_T, Page_Alloc_T>::swap(packed& other)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr void ecs::packed<T, Page_T, Alloc_T>::swap(packed& other)
 {
 	std::swap(extent, other.extent);
 	std::swap(pages, other.pages);
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr void ecs::packed<T, Page_T, Page_Alloc_T>::clear() noexcept
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr void ecs::packed<T, Page_T, Alloc_T>::clear() noexcept
 {
 	size_t page_n = extent / page_size;
 	size_t elem_n = extent % page_size;
@@ -888,112 +884,112 @@ constexpr void ecs::packed<T, Page_T, Page_Alloc_T>::clear() noexcept
 }
 
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr std::span<typename ecs::packed<T, Page_T, Page_Alloc_T>::page_type, std::dynamic_extent> 
-ecs::packed<T, Page_T, Page_Alloc_T>::get_pages()
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr std::span<typename ecs::packed<T, Page_T, Alloc_T>::page_type, std::dynamic_extent> 
+ecs::packed<T, Page_T, Alloc_T>::get_pages()
 {
 	return { pages.data, extent / page_size };
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr std::span<const typename ecs::packed<T, Page_T, Page_Alloc_T>::page_type, std::dynamic_extent> 
-ecs::packed<T, Page_T, Page_Alloc_T>::get_pages() const
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr std::span<const typename ecs::packed<T, Page_T, Alloc_T>::page_type, std::dynamic_extent> 
+ecs::packed<T, Page_T, Alloc_T>::get_pages() const
 {
 	return { pages.data, extent / page_size };
 }
 //		std::span<const page_type, std::dynamic_extent> get_pages() const;
 
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed_iterator<T, Page_T, Page_Alloc_T>::packed_iterator()
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed_iterator<T, Page_T, Alloc_T>::packed_iterator()
  : range(nullptr), page_index(-1), elem_index(-1) { }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed_iterator<T, Page_T, Page_Alloc_T>::packed_iterator(base_range* range, size_t index)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed_iterator<T, Page_T, Alloc_T>::packed_iterator(base_range* range, size_t index)
  : range(range), page_index(index / page_size), elem_index(index % page_size) { }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed_iterator<T, Page_T, Page_Alloc_T>::packed_iterator(base_range* range, uint16_t page_index, uint16_t elem_index)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed_iterator<T, Page_T, Alloc_T>::packed_iterator(base_range* range, uint32_t page_index, uint32_t elem_index)
  : range(range), page_index(page_index), elem_index(elem_index) { }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed_iterator<T, Page_T, Page_Alloc_T>::operator
-packed_iterator<const T, Page_Alloc_T>() const
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed_iterator<T, Page_T, Alloc_T>::operator
+packed_iterator<const T, Alloc_T>() const
 {
-	return packed_iterator<const T, Page_Alloc_T>{ this, page_index, elem_index };
+	return packed_iterator<const T, Alloc_T>{ this, page_index, elem_index };
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed_iterator<T, Page_T, Page_Alloc_T>::reference
-ecs::packed_iterator<T, Page_T, Page_Alloc_T>::operator*() const
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed_iterator<T, Page_T, Alloc_T>::reference
+ecs::packed_iterator<T, Page_T, Alloc_T>::operator*() const
 {
 	return (*range).get_page(page_index)[elem_index];
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed_iterator<T, Page_T, Page_Alloc_T>::page_type&
-ecs::packed_iterator<T, Page_T, Page_Alloc_T>::get_page() const
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed_iterator<T, Page_T, Alloc_T>::page_type&
+ecs::packed_iterator<T, Page_T, Alloc_T>::get_page() const
 {
 	return (*range).get_page(page_index);
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed_iterator<T, Page_T, Page_Alloc_T>::reference
-ecs::packed_iterator<T, Page_T, Page_Alloc_T>::operator[](difference_type n) const
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed_iterator<T, Page_T, Alloc_T>::reference
+ecs::packed_iterator<T, Page_T, Alloc_T>::operator[](difference_type n) const
 {
 	return *(*this + n);
 }
 
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr bool ecs::packed_iterator<T, Page_T, Page_Alloc_T>::operator==(const packed_iterator& other) const
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr bool ecs::packed_iterator<T, Page_T, Alloc_T>::operator==(const packed_iterator& other) const
 {
 	return page_index == other.page_index && elem_index == other.elem_index;
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr bool ecs::packed_iterator<T, Page_T, Page_Alloc_T>::operator!=(const packed_iterator& other) const
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr bool ecs::packed_iterator<T, Page_T, Alloc_T>::operator!=(const packed_iterator& other) const
 {
 	return page_index != other.page_index || elem_index != other.elem_index;
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr bool ecs::packed_iterator<T, Page_T, Page_Alloc_T>::operator<(const packed_iterator& other) const
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr bool ecs::packed_iterator<T, Page_T, Alloc_T>::operator<(const packed_iterator& other) const
 {
 	return page_index < other.page_index || (page_index == other.page_index && elem_index < other.elem_index);
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr bool ecs::packed_iterator<T, Page_T, Page_Alloc_T>::operator<=(const packed_iterator& other) const
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr bool ecs::packed_iterator<T, Page_T, Alloc_T>::operator<=(const packed_iterator& other) const
 {
 	return page_index < other.page_index || (page_index == other.page_index && elem_index <= other.elem_index);
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr bool ecs::packed_iterator<T, Page_T, Page_Alloc_T>::operator>(const packed_iterator& other) const
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr bool ecs::packed_iterator<T, Page_T, Alloc_T>::operator>(const packed_iterator& other) const
 {
 	return page_index > other.page_index || (page_index == other.page_index && elem_index > other.elem_index);
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr bool ecs::packed_iterator<T, Page_T, Page_Alloc_T>::operator>=(const packed_iterator& other) const
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr bool ecs::packed_iterator<T, Page_T, Alloc_T>::operator>=(const packed_iterator& other) const
 {
 	return page_index > other.page_index || (page_index == other.page_index && elem_index >= other.elem_index);
 }
 
 
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-ecs::packed_iterator<T, Page_T, Page_Alloc_T> operator+(
-	typename ecs::packed_iterator<T, Page_T, Page_Alloc_T>::difference_type n,
-	const ecs::packed_iterator<T, Page_T, Page_Alloc_T>& it)
+template<typename T, typename Page_T, typename Alloc_T>
+ecs::packed_iterator<T, Page_T, Alloc_T> operator+(
+	typename ecs::packed_iterator<T, Page_T, Alloc_T>::difference_type n,
+	const ecs::packed_iterator<T, Page_T, Alloc_T>& it)
 {
 	return it + n;
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed_iterator<T, Page_T, Page_Alloc_T>&
-ecs::packed_iterator<T, Page_T, Page_Alloc_T>::operator++()
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed_iterator<T, Page_T, Alloc_T>&
+ecs::packed_iterator<T, Page_T, Alloc_T>::operator++()
 {
 	if (elem_index == page_size - 1)
 	{
@@ -1007,16 +1003,16 @@ ecs::packed_iterator<T, Page_T, Page_Alloc_T>::operator++()
 	return *this;
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed_iterator<T, Page_T, Page_Alloc_T>
-ecs::packed_iterator<T, Page_T, Page_Alloc_T>::operator++(int)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed_iterator<T, Page_T, Alloc_T>
+ecs::packed_iterator<T, Page_T, Alloc_T>::operator++(int)
 {
 	packed_iterator temp = *this; ++(*this); return temp;
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed_iterator<T, Page_T, Page_Alloc_T>&
-ecs::packed_iterator<T, Page_T, Page_Alloc_T>::operator--()
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed_iterator<T, Page_T, Alloc_T>&
+ecs::packed_iterator<T, Page_T, Alloc_T>::operator--()
 {
 	if (elem_index == 0)
 	{
@@ -1030,30 +1026,30 @@ ecs::packed_iterator<T, Page_T, Page_Alloc_T>::operator--()
 	return *this;
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed_iterator<T, Page_T, Page_Alloc_T>
-ecs::packed_iterator<T, Page_T, Page_Alloc_T>::operator--(int)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed_iterator<T, Page_T, Alloc_T>
+ecs::packed_iterator<T, Page_T, Alloc_T>::operator--(int)
 {
 	packed_iterator temp = *this; --(*this); return temp;
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed_iterator<T, Page_T, Page_Alloc_T>
-ecs::packed_iterator<T, Page_T, Page_Alloc_T>::operator+(difference_type n) const
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed_iterator<T, Page_T, Alloc_T>
+ecs::packed_iterator<T, Page_T, Alloc_T>::operator+(difference_type n) const
 {
 	return { range, (page_index * page_size) + elem_index + n };
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed_iterator<T, Page_T, Page_Alloc_T>
-ecs::packed_iterator<T, Page_T, Page_Alloc_T>::operator-(difference_type n) const
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed_iterator<T, Page_T, Alloc_T>
+ecs::packed_iterator<T, Page_T, Alloc_T>::operator-(difference_type n) const
 {
 	return { range, (page_index * page_size) + elem_index - n };
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed_iterator<T, Page_T, Page_Alloc_T>&
-ecs::packed_iterator<T, Page_T, Page_Alloc_T>::operator+=(difference_type n)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed_iterator<T, Page_T, Alloc_T>&
+ecs::packed_iterator<T, Page_T, Alloc_T>::operator+=(difference_type n)
 {
 	size_t index = (page_index * page_size) + elem_index + n;
 	page_index = index / page_size;
@@ -1061,9 +1057,9 @@ ecs::packed_iterator<T, Page_T, Page_Alloc_T>::operator+=(difference_type n)
 	return *this;
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed_iterator<T, Page_T, Page_Alloc_T>&
-ecs::packed_iterator<T, Page_T, Page_Alloc_T>::operator-=(difference_type n)
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed_iterator<T, Page_T, Alloc_T>&
+ecs::packed_iterator<T, Page_T, Alloc_T>::operator-=(difference_type n)
 {
 	size_t index = (page_index * page_size) + elem_index - n;
 	page_index = index / page_size;
@@ -1071,21 +1067,21 @@ ecs::packed_iterator<T, Page_T, Page_Alloc_T>::operator-=(difference_type n)
 	return *this;
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr ecs::packed_iterator<T, Page_T, Page_Alloc_T>::difference_type
-ecs::packed_iterator<T, Page_T, Page_Alloc_T>::operator-(const packed_iterator& other) const
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr ecs::packed_iterator<T, Page_T, Alloc_T>::difference_type
+ecs::packed_iterator<T, Page_T, Alloc_T>::operator-(const packed_iterator& other) const
 {
 	return ((page_index - other.page_index) * page_size) + (elem_index - other.elem_index);
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr size_t ecs::packed_iterator<T, Page_T, Page_Alloc_T>::get_index() const
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr size_t ecs::packed_iterator<T, Page_T, Alloc_T>::get_index() const
 {
 	return (page_index * page_size) + elem_index;
 }
 
-template<typename T, typename Page_T, typename Page_Alloc_T>
-constexpr std::pair<uint16_t, uint16_t> ecs::packed_iterator<T, Page_T, Page_Alloc_T>::get_indices() const
+template<typename T, typename Page_T, typename Alloc_T>
+constexpr std::pair<uint32_t, uint32_t> ecs::packed_iterator<T, Page_T, Alloc_T>::get_indices() const
 {
 	return { page_index, elem_index };
 }
