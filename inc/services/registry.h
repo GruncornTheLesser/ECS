@@ -1,103 +1,25 @@
 #pragma once
 #include "core/traits.h"
 
-#include <memory>
-#include <cstdint>
-#include <string_view>
-#include <type_traits>
-
 #if ECS_DYNAMIC_REGISTRY
+#include "content/id.h"
 #include <unordered_map>
-
-#if defined(__clang__)
-#define PF_CMD __PRETTY_FUNCTION__
-#define PF_PRE "std::size_t ecs::id::type_hash() [T = "
-#define PF_SUF "]"
-#elif defined(__GNUC__) && !defined(__clang__)
-#define PF_CMD __PRETTY_FUNCTION__
-#define PF_PRE "constexpr std::size_t ecs::id::type_hash() [with T = "
-#define PF_SUF "]"
-#elif defined(_MSC_VER)
-#define PF_CMD __FUNCSIG__
-#define PF_PRE "struct std::size_t __cdecl ecs::id::type_hash<"
-#define PF_SUF ">(void)"
-#else
-#error "compiler unsupported."
 #endif
-#define FNV_PRIME_64 0x00000100000001B3
-#define FNV_OFFSET_64 0xCBF29CE484222325
 
-namespace ecs {
-	struct id {
-	private:
-		static constexpr std::size_t str_hash(std::string_view str_view) { 
-			auto* str = str_view.data();
-			uint64_t hash = FNV_OFFSET_64;
-			while(*str) {
-				hash ^= static_cast<uint64_t>(*str++);
-				hash *= FNV_PRIME_64;
-			}
-			return hash;
-		}
-		
-		template<typename T>
-		static constexpr std::size_t type_hash() {
-			std::basic_string_view<char> str_view{ PF_CMD + sizeof(PF_PRE) - 1, sizeof(PF_CMD) + 1 - sizeof(PF_PRE) - sizeof(PF_SUF) - 1 };
-			return str_hash(str_view);
-		}
-
-		template<typename> friend struct std::hash;
-		template<typename T> inline static constexpr char reserve{};
-	public:
-		template<typename T>
-		consteval id(std::type_identity<T> val = std::type_identity<T>{}) : val(&reserve<T>), hash(type_hash<T>()) { }
-		template<std::size_t N>
-		consteval id(const char (&val)[N]) : val(static_cast<const void*>(val)), hash(str_hash(val)) { }
-
-		constexpr friend bool operator==(const id& lhs, const id& rhs) { return lhs.val == rhs.val; }
-		constexpr friend bool operator!=(const id& lhs, const id& rhs) { return lhs.val != rhs.val; }
-
-		constexpr friend bool operator<=(const id& lhs, const id& rhs) { return lhs.hash <= rhs.hash; }
-		constexpr friend bool operator<(const id& lhs, const id& rhs) { return lhs.hash < rhs.hash; }
-
-		constexpr friend bool operator>=(const id& lhs, const id& rhs) { return lhs.hash >= rhs.hash; }
-		constexpr friend bool operator>(const id& lhs, const id& rhs) { return lhs.hash > rhs.hash; }
-
-	private:
-		const void* val;
-		const std::size_t hash;
-	};
-}
-
-#undef FNV_PRIME_64
-#undef FNV_OFFSET_64
-#undef PF_CMD
-#undef PF_PRE
-#undef PF_SUF
-
-namespace std {
-	template<> 
-	struct hash<ecs::id> {
-		constexpr hash() = default;
-		constexpr size_t operator()(const ecs::id& id) const {
-			return id.hash;
-		}
-	};
-}
-#endif
+#include <memory>
+#include <type_traits>
 
 namespace ecs {
 	template<typename ... Ts> 
 	class registry {
 	public:
-	
 		struct erased_cache_t {
 			virtual void construct(registry<Ts...>& reg) = 0;
 			virtual void destroy(registry<Ts...>& reg) = 0;
-			virtual void lock() = 0;
-			virtual void unlock() = 0;
-			virtual void lock() const = 0;
-			virtual void unlock() const = 0;
+			virtual void acquire(registry<Ts...>& reg, priority p) = 0;
+			virtual void acquire(registry<Ts...>& reg, priority p) const = 0;
+			virtual void release(registry<Ts...>& reg) = 0;
+			virtual void release(registry<Ts...>& reg) const = 0;
 		};
 		
 		template<traits::attribute_class T>
@@ -106,11 +28,20 @@ namespace ecs {
 			using mutex_type = util::eval_if_t<traits::attribute::get_mutex_t<T>, std::is_void, 
 				util::wrap_<std::type_identity>::template type>; // std::type_identity is empty
 			
+			using acquire_event = traits::attribute::get_acquire_event<T>;
+			using release_event = traits::attribute::get_release_event<T>;
+			
+			static constexpr bool acquire_enabled = !std::is_void_v<acquire_event>;
+			static constexpr bool release_enabled = !std::is_void_v<release_event>;
+
 			cache_t() { }
 			~cache_t() { }
 			cache_t(const cache_t&) = delete;
 			cache_t& operator=(const cache_t&) = delete;
-			cache_t(cache_t&& other) : value(std::uninitialized_move(other.value)), mutex(std::uninitialized_move(other.mutex)) { }
+			cache_t(cache_t&& other) { 
+				std::construct_at(&value, std::move(other.value));
+				std::construct_at(&mutex, std::move(other.mutex));
+			}
 			cache_t& operator=(cache_t&& other) {
 				if (this == &other) return *this;
 				value = std::move(other.value);
@@ -118,55 +49,82 @@ namespace ecs {
 				return *this;
 			}
 
-			void construct(registry<Ts...>& reg) override { 
-				std::construct_at(&value);
+			void construct(registry<Ts...>& reg) override {
 				std::construct_at(&mutex);
-				
+
 				if constexpr (requires { T::construct(&value, reg); }) {
 					T::construct(&value, reg);
+				} else {
+					std::construct_at(&value);
 				}
 			}
 				
 			void destroy(registry<Ts...>& reg) override {	
 				if constexpr (requires { T::destroy(&value, reg); }) {
 					T::destroy(&value, reg); 
+				} else {
+					std::destroy_at(&value);
 				}
 				
-				std::destroy_at(&value);
 				std::destroy_at(&mutex);
 			}
 	
-			void lock() override { 
-				if constexpr (requires { std::declval<mutex_type>().lock(); }) {
+			void acquire(registry<Ts...>& reg, priority p) override { 
+				if constexpr (requires { mutex.lock(p); }) {
+					mutex.lock(p); 
+				}
+				else if constexpr (requires { mutex.lock(); }) {
 					mutex.lock(); 
+				}
+				
+				if constexpr (acquire_enabled) {
+					reg.template on<acquire_event>().invoke(value);
 				}
 			}
 	
-			void unlock() override { 
-				if constexpr (requires { std::declval<mutex_type>().unlock(); }) {
+			void release(registry<Ts...>& reg) override { 
+				if constexpr (requires { mutex.unlock(); }) {
 					mutex.unlock(); 
 				}
-			}
-	
-			void lock() const override { 
-				if constexpr (requires { std::declval<mutex_type>().shared_lock(); }) {
-					mutex.shared_lock(); 
-				}	
-				else if constexpr (requires { std::declval<mutex_type>().lock(); }) {
-					mutex.lock(); 
+
+				if constexpr (release_enabled) {
+					reg.template on<release_event>().invoke(value);
 				}
 			}
 	
-			void unlock() const override {
-				if constexpr (requires { std::declval<mutex_type>().shared_lock(); }) {
+			void acquire(registry<Ts...>& reg, priority p) const override { 
+				if constexpr (requires { mutex.shared_lock(p); }) {
+					mutex.shared_lock(); 
+				}
+				else if constexpr (requires { mutex.shared_lock(); }) {
+					mutex.shared_lock(); 
+				}
+				else if constexpr (requires { mutex.lock(p); }) {
+					mutex.lock(p); 
+				}
+				else if constexpr (requires { mutex.lock(); }) {
+					mutex.lock(); 
+				}
+
+				if constexpr (acquire_enabled) {
+					reg.template on<acquire_event>().invoke(value);
+				}
+			}
+	
+			void release(registry<Ts...>& reg) const override {
+				if constexpr (requires { mutex.shared_lock(); }) {
 					mutex.shared_unlock(); 
 				}
-				else if constexpr (requires { std::declval<mutex_type>().lock(); }) {
+				else if constexpr (requires { mutex.lock(); }) {
 					mutex.unlock(); 
+				}
+
+				if constexpr (release_enabled) {
+					reg.template on<release_event>().invoke(value);
 				}
 			}
 	
-			union { [[no_unique_address]] mutex_type mutex; };
+			union { [[no_unique_address]] mutable mutex_type mutex; };
 			union { [[no_unique_address]] value_type value; };
 		};
 	public:
@@ -374,11 +332,11 @@ namespace ecs {
 
 		template<typename ... dep_Ts>
 		void lock(priority p = priority::MEDIUM) {
-			using lock_sequence = util::eval_t<traits::dependencies::get_attribute_set_t<dep_Ts...>,  
+			using lock_sequence = util::eval_t<traits::dependencies::get_attribute_set_t<dep_Ts...>, 
 				util::sort_by_<traits::attribute::get_lock_priority, util::get_type_name>::template type
 			>;
 			util::apply<lock_sequence>([&]<typename ... Res_Ts>{ 
-				(get_cache<Res_Ts>().lock(p), ...); 
+				(get_cache<Res_Ts>().acquire(p), ...); 
 			});
 		}
 
@@ -389,7 +347,7 @@ namespace ecs {
 				util::reverse
 			>;
 			util::apply<lock_sequence>([&]<typename ... Res_Ts>{ 
-				(get_cache<Res_Ts>().unlock(), ...); 
+				(get_cache<Res_Ts>().release(), ...); 
 			});
 		}
 
@@ -412,7 +370,7 @@ namespace ecs {
 		}
 
 		/* initializes a generator service class for the entity T. */
-		template<traits::entity_class T>
+		template<traits::entity_class T=ECS_DEFAULT_ENTITY>
 		inline ecs::generator<T, const registry<Ts...>> generator() const {
 			return *this;
 		}
@@ -450,25 +408,19 @@ namespace ecs {
 		/* constructs and associates a component of type T to the entity ent. */
 		template<traits::component_class T, typename ... arg_Ts>
 		inline decltype(auto) emplace(traits::component::get_handle_t<T> ent, arg_Ts&& ... args) {
-			return pool<T>().emplace(ent, std::forward<arg_Ts>(args)...);
+			return pool<T>().emplace_back(ent, std::forward<arg_Ts>(args)...);
 		}
 
 		/* constructs and associates a component of type T to the entity ent, if not already present else returns original. */
-		template<traits::component_class T, typename ... arg_Ts>
-		inline decltype(auto) try_emplace(traits::component::get_handle_t<T> ent, arg_Ts&& ... args) {
-			return pool<T>().try_emplace(ent, std::forward<arg_Ts>(args)...);
+		template<typename seq_pol_T=ecs::policy::optimal, traits::component_class T, typename ... arg_Ts>
+		inline decltype(auto) emplace_at(std::size_t idx, traits::component::get_handle_t<T> ent, arg_Ts&& ... args) {
+			return pool<T>().emplace_at(seq_pol_T{}, idx, ent, std::forward<arg_Ts>(args)...);
 		}
 
 		/* destroys the component of type T associated to the entity ent. */
-		template<traits::component_class comp_T, traits::entity_class ent_T=entity> 		
+		template<typename seq_pol_T=ecs::policy::optimal, traits::component_class comp_T, traits::entity_class ent_T=entity> 		
 		inline void erase(traits::entity::get_handle_t<ent_T> ent) {
-			pool<comp_T>().erase(ent);
-		}
-
-		/* destroys a component of type T on the entity ent if associated. */
-		template<traits::component_class comp_T, traits::entity_class ent_T=entity> 		
-		inline void try_erase(traits::entity::get_handle_t<ent_T> ent) {
-			pool<comp_T>().try_erase(ent);
+			pool<comp_T>().erase(seq_pol_T{}, ent);
 		}
 
 		/* returns the number of components of type T. */
@@ -502,19 +454,19 @@ namespace ecs {
 		}
 
 		/* creates a new entity of type T. */
-		template<traits::entity_class T=entity>
+		template<traits::entity_class T=ECS_DEFAULT_ENTITY>
 		inline traits::entity::get_handle_t<T> create() {
 			return generator<T>().create();
 		}
 		
 		/* destroys entity ent and all associated components. */
-		template<traits::entity_class T=entity>
+		template<traits::entity_class T=ECS_DEFAULT_ENTITY>
 		inline void destroy(traits::entity::get_handle_t<T> ent) {
 			generator<T>().destroy(ent);
 		}
 
 		/* returns true if entity handle alive. */
-		template<traits::entity_class T=entity>
+		template<traits::entity_class T=ECS_DEFAULT_ENTITY>
 		inline bool alive(traits::entity::get_handle_t<T> ent) const {
 			return generator<T>().alive(ent);
 		}

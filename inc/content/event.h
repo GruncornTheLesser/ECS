@@ -13,11 +13,6 @@ namespace ecs::event {
 		using callback_type = std::function<void(traits::entity::get_handle_t<T>)>;
 	};
 	
-	template<traits::component_class T> struct sync {
-		using ecs_category = ecs::tag::event;
-		using callback_type = std::function<void()>;
-	};
-
 	template<traits::component_class comp_T> struct initialize {
 	private:
 		using value_type = traits::component::get_value_t<comp_T>;
@@ -34,6 +29,15 @@ namespace ecs::event {
 	public:
 		using ecs_category = ecs::tag::event;
 		using callback_type = std::function<std::conditional_t<std::is_void_v<value_type>, void(handle_type), void(handle_type, value_type&)>>;
+	};
 
+	template<traits::attribute_class T> struct acquire {
+		using ecs_category = ecs::tag::event;
+		using callback_type = std::function<void(traits::attribute::get_value_t<T>&)>;
+	};
+		
+		template<traits::attribute_class T> struct release {
+		using ecs_category = ecs::tag::event;
+		using callback_type = std::function<void(traits::component::get_value_t<T>&)>;
 	};
 }
