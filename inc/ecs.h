@@ -3,6 +3,7 @@
 #include "content/attribute.h"  // IWYU pragma: export
 #include "content/event.h" // IWYU pragma: export
 #include "content/handle.h" // IWYU pragma: export
+#include "content/policy.h" // IWYU pragma: export
 #include "services/pool.h" // IWYU pragma: export
 #include "services/invoker.h" // IWYU pragma: export
 #include "services/generator.h" // IWYU pragma: export

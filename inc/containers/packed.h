@@ -5,10 +5,10 @@
 #include <algorithm>
 
 namespace ecs {
-	template<typename T, typename Page_T=std::span<T, 4096>, typename ALloc_T=std::allocator<T>>
+	template<typename T, typename Page_T=std::span<T, 4096>, typename Alloc_T=std::allocator<T>>
 	class packed;
 
-	template<typename T, typename Page_T=std::span<T, 4096>, typename ALloc_T=std::allocator<T>>
+	template<typename T, typename Page_T=std::span<T, 4096>, typename Alloc_T=std::allocator<T>>
 	class packed_iterator;
 
 	template<typename T, typename Page_T, typename Alloc_T>
@@ -51,8 +51,8 @@ namespace ecs {
 		constexpr void assign(size_t n, const T& value);
 		constexpr void assign(std::initializer_list<T> ilist);
 
-		constexpr allocator_type get_allocator() const noexcept;
-		constexpr page_allocator_type get_page_allocator() const noexcept;
+		constexpr allocator_type& get_allocator() noexcept;
+		constexpr page_allocator_type& get_page_allocator() noexcept;
 
 		// iterators
 		constexpr iterator begin() noexcept;
@@ -71,7 +71,6 @@ namespace ecs {
 
 		// capacity
 		[[nodiscard]] constexpr bool empty() const noexcept;
-		constexpr size_t max_size() const noexcept;
 		constexpr size_t size() const;
 		constexpr size_t page_count() const;
 		constexpr size_t capacity() const;
@@ -116,6 +115,7 @@ namespace ecs {
 		constexpr std::span<page_type, std::dynamic_extent> get_pages();
 		constexpr std::span<const page_type, std::dynamic_extent> get_pages() const;
 	private:
+		allocator_type alloc;
 		size_t extent;
 		std::vector<page_type, page_allocator_type> pages;
 	};
@@ -184,11 +184,11 @@ namespace ecs {
 // constructors
 template<typename T, typename Page_T, typename Alloc_T>
 constexpr ecs::packed<T, Page_T, Alloc_T>::packed(const allocator_type& elem_alloc, const page_allocator_type& page_alloc) noexcept
- : extent(0), pages(page_alloc) { }
+ : extent(0), alloc(elem_alloc), pages(page_alloc) { }
 
 template<typename T, typename Page_T, typename Alloc_T>
 constexpr ecs::packed<T, Page_T, Alloc_T>::packed(size_t n, const allocator_type& elem_alloc, const page_allocator_type& page_alloc)
- : extent(n), pages(page_alloc)
+ : extent(n), alloc(elem_alloc), pages(page_alloc)
 {
 	reserve(extent);
 
@@ -199,7 +199,7 @@ constexpr ecs::packed<T, Page_T, Alloc_T>::packed(size_t n, const allocator_type
 
 template<typename T, typename Page_T, typename Alloc_T>
 constexpr ecs::packed<T, Page_T, Alloc_T>::packed(size_t n, const T& value, const allocator_type& elem_alloc, const page_allocator_type& page_alloc)
- : extent(n), pages(page_alloc)
+ : extent(n), alloc(elem_alloc), pages(page_alloc)
 {
 	reserve(extent);
 
@@ -413,15 +413,15 @@ constexpr void ecs::packed<T, Page_T, Alloc_T>::assign(std::initializer_list<T> 
 }
 
 template<typename T, typename Page_T, typename Alloc_T>
-constexpr ecs::packed<T, Page_T, Alloc_T>::allocator_type
-ecs::packed<T, Page_T, Alloc_T>::get_allocator() const noexcept
+constexpr ecs::packed<T, Page_T, Alloc_T>::allocator_type&
+ecs::packed<T, Page_T, Alloc_T>::get_allocator() noexcept
 {
-	return pages.get_allocator();
+	return alloc;
 }
 
 template<typename T, typename Page_T, typename Alloc_T>
-constexpr ecs::packed<T, Page_T, Alloc_T>::page_allocator_type
-ecs::packed<T, Page_T, Alloc_T>::get_page_allocator() const noexcept
+constexpr ecs::packed<T, Page_T, Alloc_T>::page_allocator_type&
+ecs::packed<T, Page_T, Alloc_T>::get_page_allocator() noexcept
 {
 	return pages.get_allocator();
 }
@@ -520,12 +520,6 @@ constexpr bool ecs::packed<T, Page_T, Alloc_T>::empty() const noexcept
 }
 
 template<typename T, typename Page_T, typename Alloc_T>
-constexpr size_t ecs::packed<T, Page_T, Alloc_T>::max_size() const noexcept
-{
-	return page_size * static_cast<uint32_t>(-1);
-}
-
-template<typename T, typename Page_T, typename Alloc_T>
 constexpr size_t ecs::packed<T, Page_T, Alloc_T>::size() const
 {
 	return extent;
@@ -554,7 +548,7 @@ constexpr void ecs::packed<T, Page_T, Alloc_T>::resize(size_t n)
 	if (extent < n)
 	{
 		reserve(n);
-
+		
 		if (page_n == new_page_n)
 		{
 			std::uninitialized_default_construct_n(pages[page_n].data() + elem_n, new_elem_n - elem_n);
@@ -571,7 +565,7 @@ constexpr void ecs::packed<T, Page_T, Alloc_T>::resize(size_t n)
 	{
 		if (page_n == new_page_n)
 		{
-			std::destroy_n(pages[page_n].data() + elem_n, new_elem_n - elem_n);
+			std::destroy_n(pages[page_n].data() + elem_n, elem_n - new_elem_n);
 		}
 		else
 		{

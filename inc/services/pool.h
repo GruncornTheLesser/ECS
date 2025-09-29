@@ -2,7 +2,6 @@
 #include "core/traits.h"
 #include <cassert>
 #include <span>
-#include <algorithm>
 
 namespace ecs {
 	template<ecs::traits::component_class T, typename reg_T>
@@ -22,534 +21,405 @@ namespace ecs {
 		using indexer_type = util::copy_const_t<traits::component::get_indexer_t<component_type>, T>;
 		using storage_type = util::copy_const_t<traits::component::get_storage_t<component_type>, T>;
 
-		static constexpr bool initialize_event_enabled = !std::is_void_v<traits::component::get_initialize_event_t<T>>;
-		static constexpr bool terminate_event_enabled = !std::is_void_v<traits::component::get_terminate_event_t<T>>;
+		using reference = std::add_lvalue_reference_t<value_type>;
+		using const_reference = std::add_lvalue_reference_t<const value_type>;
+
+		static constexpr bool initialize_event_enabled = !std::is_void_v<initialize_event>;
+		static constexpr bool terminate_event_enabled = !std::is_void_v<terminate_event>;
 		
 		static constexpr bool manager_enabled = !std::is_void_v<manager_type>;
 		static constexpr bool indexer_enabled = !std::is_void_v<indexer_type>;
 		static constexpr bool storage_enabled = !std::is_void_v<storage_type>;
 
+		// attributes cannot be shared
 		static_assert(!manager_enabled || !indexer_enabled || !std::is_same_v<manager_type, indexer_type>);
 		static_assert(!indexer_enabled || !storage_enabled || !std::is_same_v<indexer_type, storage_type>);
 		static_assert(!storage_enabled || !manager_enabled || !std::is_same_v<storage_type, manager_type>);
 		
-
-		static_assert(manager_enabled);
-		static_assert(indexer_enabled);
-		// static_assert(storage_enabled);
-
-		//? using iterator = view_iterator<select<entity_type, T>, from<T>, where<>, reg_T>;
-		//? using const_iterator = view_iterator<select<entity_type, const T>, from<T>, where<>, const reg_T>;
-		//? using sentinel = view_sentinel;
+		static_assert(indexer_enabled, "indexer disabled. Indexer required for all operations.");
+		static_assert(!manager_enabled || storage_enabled, "storage enabled but manager disabled. storage requires manager attribute.");
+		static_assert(!terminate_event_enabled || manager_enabled, "terminate event enabled but manager disabled. Events require manager attribute.");
+		static_assert(!initialize_event_enabled || manager_enabled, "initialize event enabled but manager disabled. Events require manager attribute.");
 
 	public:
-		inline constexpr pool(reg_T& reg) noexcept : reg(reg) { }
+		constexpr pool(reg_T& reg) noexcept : reg(reg) { }
 
-		/** the number of active + inactive components */
-		[[nodiscard]] constexpr std::size_t size() const {
-			if constexpr (indexer_enabled) {
-				const auto& indexer = reg.template get_attribute<const indexer_type>();
-				return indexer.size();
-			}
+		[[nodiscard]] constexpr std::size_t size() const requires (manager_enabled) {
+			const auto& manager = reg.template get_attribute<const manager_type>();
+			return manager.size();
 		}
 
-		[[nodiscard]] constexpr std::size_t reserved() const {
+		constexpr void reserve(std::size_t n) const {
 			if constexpr (manager_enabled) {
-				const auto& manager = reg.template get_attribute<const manager_type>();
-				return manager.size();
+				reg.template get_attribute<manager_type>().reserve(n);
+			}
+
+			if constexpr (storage_enabled) {
+				reg.template get_attribute<storage_type>().reserve(n);
 			}
 		}
 
 		/** returns the entity handle at the back of the pool */
-		[[nodiscard]] inline constexpr const handle_type& back() const requires (manager_enabled) {
+		[[nodiscard]] constexpr const handle_type& back() const requires (manager_enabled) {
 			const auto& manager = reg.template get_attribute<const manager_type>();
 			return manager.back();
+		}
+		
+		/** returns the entity handle at the front of the pool */
+		[[nodiscard]] constexpr const handle_type& front() const requires (manager_enabled) {
+			const auto& manager = reg.template get_attribute<const manager_type>();
+			return manager.front();
 		}
 
-		/** returns the entity handle at the front of the pool */
-		[[nodiscard]] inline constexpr const handle_type& front(std::size_t idx) const requires (manager_enabled) {
-			const auto& manager = reg.template get_attribute<const manager_type>();
-			return manager.back();
+		/** returns the component at the back of the pool */
+		[[nodiscard]] constexpr reference component_back() requires (storage_enabled) {
+			auto& storage = reg.template get_attribute<storage_type>();
+			return storage.back();
 		}
+
+		/** returns the component at the back of the pool */
+		[[nodiscard]] constexpr reference component_back() const requires (storage_enabled) {
+			const auto& storage = reg.template get_attribute<const storage_type>();
+			return storage.at(size() - 1);
+		}
+
+		/** returns the component at the front of the pool */
+		[[nodiscard]] constexpr reference component_front() requires (storage_enabled) {
+			auto& storage = reg.template get_attribute<storage_type>();
+			return storage.front();
+		}
+
+		/** returns the component at the front of the pool */
+		[[nodiscard]] constexpr const_reference component_front() const requires (storage_enabled) {
+			const auto& storage = reg.template get_attribute<const storage_type>();
+			return storage.front();
+		}
+
 		/** returns the entity handle at the given index */
-		[[nodiscard]] inline constexpr const handle_type& at(std::size_t idx) const requires (manager_enabled) {
+		[[nodiscard]] constexpr const handle_type& at(std::size_t idx) const requires (manager_enabled) {
 			const auto& manager = reg.template get_attribute<const manager_type>();
 			return manager.at(idx);
 		}
 
 		/** returns the entity handle at the given index */
-		[[nodiscard]] inline constexpr value_type& component_at(std::size_t idx) 
-			requires (storage_enabled) {
+		[[nodiscard]] constexpr reference component_at(std::size_t idx)  requires (storage_enabled) {
 			auto& storage = reg.template get_attribute<storage_type>();
 			return storage.at(idx);
 		}
 
 		/** returns the entity handle at the given index */
-		[[nodiscard]] inline constexpr const value_type& component_at(std::size_t idx) const requires (storage_enabled) {
+		[[nodiscard]] constexpr const_reference component_at(std::size_t idx) const requires (storage_enabled) {
 			const auto& storage = reg.template get_attribute<const storage_type>();
 			return storage.at(idx);
 		}
 
 		/** returns the entity handle at the given index */
-		[[nodiscard]] inline constexpr decltype(auto) get_component(const handle_type& hnd) {
-			if constexpr (storage_enabled) {
-				return component_at(index_of(hnd));
-			} else {
-				return contains(hnd);
-			}
+		[[nodiscard]] constexpr reference get_component(const handle_type& hnd) requires (indexer_enabled && storage_enabled) {
+			return component_at(index_of(hnd));
 		}
 
 		/** returns the entity handle at the given index */
-		[[nodiscard]] inline constexpr decltype(auto) get_component(const handle_type& hnd) const {
-			if constexpr (storage_enabled) {
-				return component_at(index_of(hnd));
-			} else {
-				return contains(hnd);
-			}
+		[[nodiscard]] constexpr const_reference get_component(const handle_type& hnd) const requires (indexer_enabled && storage_enabled) {
+			return component_at(index_of(hnd));
+		}
+		
+		/** returns the entity handle at the given index */
+		[[nodiscard]] constexpr bool get_component(const handle_type& hnd) requires (indexer_enabled && !storage_enabled) {
+			return contains(hnd);
+		}
+
+		/** returns the entity handle at the given index */
+		[[nodiscard]] constexpr const bool get_component(const handle_type& hnd) const requires (indexer_enabled && !storage_enabled) {
+			return contains(hnd);
 		}
 
 		/** returns true if entity exists within the pool */
-		[[nodiscard]] inline constexpr bool contains(const handle_type& hnd) const requires (indexer_enabled) {
+		[[nodiscard]] constexpr bool contains(const handle_type& hnd) const requires (indexer_enabled) {
 			const auto& indexer = reg.template get_attribute<const indexer_type>();
 			return indexer.contains(hnd);
 		}
 
 		/** returns the index of the component of a given entity */
-		[[nodiscard]] inline constexpr std::size_t index_of(const handle_type& hnd) const requires (indexer_enabled) {
+		[[nodiscard]] constexpr std::size_t index_of(const handle_type& hnd) const requires (indexer_enabled && (manager_enabled || storage_enabled)) {
 			const auto& indexer = reg.template get_attribute<const indexer_type>();
 			if (auto it = indexer.find(hnd); it != indexer.end()) {
 				return it->second;
 			}
-			
+
 			return -1;
 		}
 
-		/** adds a component to the pool at the index */
-		template<typename seq_T=policy::optimal, typename exec_T=ecs::policy::immediate, typename ... arg_Ts> requires (!storage_enabled || std::is_constructible_v<value_type, arg_Ts...>)
-		constexpr decltype(auto) emplace_at(std::size_t idx, handle_type hnd, arg_Ts&&... args) {
-			return _emplace_at(seq_T{}, exec_T{}, idx, std::span<handle_type>{ &hnd, 1 }, std::forward<arg_Ts>(args)...);
-		}
+		/** adds a component to the back of the pool */
+		template<typename ... arg_Ts> requires (!storage_enabled || std::is_constructible_v<value_type, arg_Ts...>)
+		constexpr decltype(auto) emplace_back(handle_type hnd, arg_Ts&&... args) {
+			auto& indexer = reg.template get_attribute<indexer_type>();
+			
+			if constexpr (manager_enabled) {
+				auto& manager = reg.template get_attribute<manager_type>();
+				
+				manager.emplace_back(hnd);
+				
+				indexer.emplace(hnd, indexer.size());
 
-		template<typename seq_T=policy::optimal, typename exec_T=policy::immediate, typename ... arg_Ts> requires (!storage_enabled || std::is_constructible_v<value_type, arg_Ts...>)
-		constexpr void emplace_at(std::size_t idx, std::span<handle_type> hnds, arg_Ts&&... args) {
-			return _emplace_at(seq_T{}, exec_T{}, idx, hnds, std::forward<arg_Ts>(args)...);
+				if constexpr (storage_enabled) {
+					auto& storage = reg.template get_attribute<storage_type>();
+					
+					auto& val = storage.emplace_back(std::forward<arg_Ts>(args)...);
+
+					if constexpr (initialize_event_enabled) {
+						reg.template on<initialize_event>().invoke(hnd, val);
+					}
+
+					return val;
+				} else {
+					if constexpr (initialize_event_enabled) {
+						reg.template on<initialize_event>().invoke(hnd);
+					}
+				}
+			} else {
+				indexer.emplace(hnd);
+			}
 		}
 
 		/** adds a component to the back of the pool */
-		template<typename seq_T=policy::optimal, typename exec_T=policy::immediate, typename ... arg_Ts> requires (!storage_enabled || std::is_constructible_v<value_type, arg_Ts...>)
-		constexpr decltype(auto) emplace_back(handle_type hnd, arg_Ts&&... args) {
-			return _emplace_back(policy::immediate{}, std::span<handle_type>{ &hnd, 1 }, std::forward<arg_Ts>(args)...);
-		}
-
-		template<typename seq_T=policy::optimal, typename exec_T=policy::immediate, typename ... arg_Ts> requires (!storage_enabled || std::is_constructible_v<value_type, arg_Ts...>)
+		template<typename ... arg_Ts> requires (!storage_enabled || std::is_constructible_v<value_type, arg_Ts...>)
 		constexpr void emplace_back(std::span<handle_type> hnds, arg_Ts&&... args) {
-			return _emplace_back(seq_T{}, exec_T{}, hnds, std::forward<arg_Ts>(args)...);
+			auto& indexer = reg.template get_attribute<indexer_type>();
+			
+			if constexpr (manager_enabled) { // manager
+				auto& manager = reg.template get_attribute<manager_type>();
+
+				manager.reserve(manager.size() + hnds.size());
+				
+				for (std::size_t i = 0; i < hnds.size(); ++i) {
+					manager.emplace_back(hnds[i]);
+				}
+				
+				for (std::size_t i = 0; i < hnds.size(); ++i) {
+					indexer.emplace(hnds[i], indexer.size());
+				}
+
+				if constexpr (storage_enabled) {
+					auto& storage = reg.template get_attribute<storage_type>();
+					storage.reserve(storage.size() + hnds.size());
+					
+					for (std::size_t i = 0; i < hnds.size(); ++i) {
+						storage.emplace_back(std::forward<arg_Ts>(args)...);
+					}
+
+					if constexpr (initialize_event_enabled) {
+						auto it = storage.end() - hnds.size();
+						for (std::size_t i = 0; i < hnds.size(); ++i) {
+							reg.template on<initialize_event>().invoke(hnds[i], *it++);
+						}
+					}	
+				} else {
+					if constexpr (initialize_event_enabled) {
+						for (std::size_t i = 0; i < hnds.size(); ++i) {
+							reg.template on<initialize_event>().invoke(hnds[i]);
+						}
+					}
+				}
+			} else {
+				for (std::size_t i = 0; i < hnds.size(); ++i) {
+					indexer.emplace(hnds[i]);
+				}
+			}
 		}
 		
+		/** adds a component to the pool at the index */
+		template<typename seq_T=policy::optimal, typename ... arg_Ts> requires (manager_enabled && (!storage_enabled || std::is_constructible_v<value_type, arg_Ts...>))
+		constexpr decltype(auto) emplace_at(std::size_t idx, handle_type hnd, arg_Ts&&... args) {
+			auto& manager = reg.template get_attribute<manager_type>();
+			auto& indexer = reg.template get_attribute<indexer_type>();
+			seq_T policy;
+
+			manager.reserve(manager.size() + 1);
+
+			auto pos = manager.begin() + idx;
+			auto update = policy.emplace(manager, pos, hnd);
+
+			indexer.emplace(hnd, std::distance(manager.begin(), pos));
+			
+			for (auto it = update.begin(), end = manager.end(); it < end; ++it) {
+				indexer.at(*it) = std::distance(manager.begin(), it);
+			}
+
+			if constexpr (storage_enabled) {
+				auto& storage = reg.template get_attribute<storage_type>();
+				storage.reserve(storage.size() + 1);
+
+				policy.emplace(storage, storage.begin() + idx, std::forward<arg_Ts>(args)...);
+			
+				if constexpr (initialize_event_enabled) {
+					reg.template on<initialize_event>().invoke(hnd, storage.at(idx));
+				}
+				
+				return storage.at(idx);
+			} else {
+				if constexpr (initialize_event_enabled) {
+					reg.template on<initialize_event>().invoke(hnd);
+				}
+			}
+		}
+
+		/** adds a component to the pool at the index */
+		template<typename seq_T=policy::optimal, typename ... arg_Ts> requires (manager_enabled && (!storage_enabled || std::is_constructible_v<value_type, arg_Ts...>))
+		constexpr void emplace_at(std::size_t idx, std::span<handle_type> hnds, arg_Ts&&... args) {
+			auto& manager = reg.template get_attribute<manager_type>();
+			auto& indexer = reg.template get_attribute<indexer_type>();
+			seq_T policy;
+
+			manager.reserve(manager.size() + hnds.size());
+
+			auto pos = manager.begin() + idx;
+			auto update = policy.insert_range(manager, hnds);
+
+			for (auto it = pos, end = it + hnds.size(); it < end; ++it) {
+				indexer.emplace(*it, std::distance(manager.begin(), it));
+			}
+			
+			for (auto it = update, end = manager.end(); it < end; ++it) {
+				indexer.at(*it) = std::distance(manager.begin(), it);
+			}
+
+			if constexpr (storage_enabled) {
+				auto& storage = reg.template get_attribute<storage_type>();
+				storage.reserve(storage.size() + hnds.size());
+				policy.emplace_n(storage, storage.begin() + idx, hnds.size(), std::forward<arg_Ts>(args)...);
+			
+				if constexpr (initialize_event_enabled) {
+					for (auto hnd_it = hnds.begin() + idx, val_it = storage.begin() + idx, end = hnds.end(); hnd_it != end; ++hnd_it, ++val_it) {
+						reg.template on<initialize_event>().invoke(*hnd_it, *val_it);
+					}
+				}
+			} else {
+				if constexpr (initialize_event_enabled) {
+					for (auto hnd_it = hnds.begin() + idx, end = hnds.end(); hnd_it != end; ++hnd_it) {
+						reg.template on<initialize_event>().invoke(*hnd_it);
+					}
+				}
+			}
+		}
+
+		/** erases a component from the pool */
 		template<typename seq_T=policy::optimal>
 		constexpr void erase(handle_type hnd) {
-			_erase_at(seq_T{}, policy::immediate{}, index_of(hnd));
+			auto& indexer = reg.template get_attribute<indexer_type>();
+			seq_T policy;
+			
+			if constexpr (manager_enabled) {
+				auto& manager = reg.template get_attribute<manager_type>();
+
+				std::size_t idx = index_of(hnd);
+
+				if constexpr (terminate_event_enabled) {
+					if constexpr (storage_enabled) {
+						reg.template on<terminate_event>().invoke(at(idx), component_at(idx)); 
+					} else {
+						reg.template on<terminate_event>().invoke(at(idx)); 
+					}
+				}
+
+				indexer.erase(hnd);
+				
+				auto update = policy.erase(manager, manager.begin() + idx);
+
+				for (auto it = update.begin(), end = update.end(); it < end; ++it) {
+					indexer.at(*it) = std::distance(manager.begin(), it);
+				}
+				
+				if constexpr (storage_enabled) {
+					auto& storage = reg.template get_attribute<storage_type>();
+					policy.erase(storage, storage.begin() + idx);
+				}
+			} else {
+				indexer.erase(hnd);
+			}
+
+			
 		}
 
+		/** erases a component from the pool */
 		template<typename seq_T=policy::optimal>
 		constexpr void erase(std::span<handle_type> hnds) {
-			for (auto hnd : hnds) _erase_at(seq_T{}, policy::immediate{}, index_of(hnd));
+			for (auto& hnd : hnds) erase<seq_T>(hnd); // TODO: improve performance, execute rolling move from sorted handles
 		}
 
-		template<typename seq_T=policy::optimal, typename exec_T=policy::immediate>
-		constexpr void erase_at(std::size_t idx, std::size_t n = 1) {
-			return _erase_at(seq_T{}, exec_T{}, idx, n);
+		/** erases a component at an index */
+		template<typename seq_T=policy::optimal>
+		constexpr void erase_at(std::size_t idx) requires (manager_enabled) {
+			auto& indexer = reg.template get_attribute<indexer_type>();
+			auto& manager = reg.template get_attribute<manager_type>();
+			seq_T policy;
+
+			if constexpr (terminate_event_enabled) {
+				if constexpr (storage_enabled) {
+					reg.template on<terminate_event>().invoke(at(idx), component_at(idx)); 
+				} else {
+					reg.template on<terminate_event>().invoke(at(idx)); 
+				}
+			}
+			
+			auto pos = manager.begin() + idx;
+
+			indexer.erase(*pos);
+						
+			auto update = policy.erase(manager, pos);
+
+			for (auto it = update.begin(), end = update.end(); it < end; ++it) {
+				indexer.at(*it) = std::distance(manager.begin(), it);
+			}
+			
+			if constexpr (storage_enabled) {
+				auto& storage = reg.template get_attribute<storage_type>();
+				policy.erase(storage, storage.begin() + idx);
+			}
 		}
 
-		template<typename seq_T=policy::optimal, typename exec_T=policy::immediate>
+		/** erases a component at an index */
+		template<typename seq_T=policy::optimal>
+		constexpr void erase_at(std::size_t idx, std::size_t count) requires (manager_enabled) {
+			auto& indexer = reg.template get_attribute<indexer_type>();
+			auto& manager = reg.template get_attribute<manager_type>();
+			seq_T policy;
+
+			if constexpr (terminate_event_enabled) {
+				if constexpr (storage_enabled) {
+					for (std::size_t i = idx, n = idx + count; i < n; ++i) {
+						reg.template on<terminate_event>().invoke(at(i), component_at(i));
+					} 
+				} else {
+					for (std::size_t i = idx, n = idx + count; i < n; ++i) {
+						reg.template on<terminate_event>().invoke(at(i));
+					} 
+				}
+			}
+			
+			auto pos = manager.begin() + idx;
+
+			for (auto it = pos, end = pos + count; it < end; ++it) {
+				indexer.erase(*it);
+			}
+			
+			auto update = policy.erase_n(manager, pos, count);
+
+			for (auto it = update.begin(), end = update.end(); it < end; ++it) {
+				indexer.at(*it) = std::distance(manager.begin(), it);
+			}
+			
+			if constexpr (storage_enabled) {
+				auto& storage = reg.template get_attribute<storage_type>();
+				policy.erase_n(storage, storage.begin() + idx, count);
+			}
+		}
+
+		/** removes all components from the pool */
+		template<typename seq_T=policy::optimal>
 		constexpr void clear() {
-			_clear(exec_T{});
-		}
-		
-		void sync() {
-			auto& manager = reg.template get_attribute<manager_type>();
-			auto& indexer = reg.template get_attribute<indexer_type>();
-			
-			auto begin = manager.begin() + indexer.size();
-			auto end = manager.end(); //? std::remove_if(begin, manager.end(), [&](auto& hnd) { return hnd == tombstone{}; });
-
-			if constexpr (terminate_event_enabled) {
-				for (auto it = end; it < manager.end(); ++it) {
-					if constexpr (storage_enabled) {
-						reg.template on<terminate_event>().invoke(*it, get_component(*it));
-					} else {
-						reg.template on<terminate_event>().invoke(*it);
-					}
-
-					indexer.erase(*it);
-				}
-			}
-
-			if constexpr (storage_enabled) {
-				auto& storage = reg.template get_attribute<storage_type>();
-				
-				std::size_t size = std::distance(manager.begin(), end);
-				if (size > storage.size()) {
-					storage.resize(size);
-				}
-			}
-
-			// cycle following algorithm
-			for (auto it = begin; it < end; ++it) { 
-				handle_type hnd = *it;
-				std::size_t curr = std::distance(manager.begin(), it);
-
-				// find where curr previously stored
-				std::size_t next;
-				if (auto it = indexer.find(hnd); it != indexer.end()) {
-					next = *it;
-				} else {
-					continue;
-				}
-
-				while (curr != next) {
-					// swap curr to the updated position
-					if constexpr (storage_enabled) {
-						auto& storage = reg.template get_attribute<storage_type>();
-						std::swap(storage.at(curr), storage.at(next));
-					}
-
-					// update index of curr
-					indexer.at(hnd) = curr;
-					
-					// iterate to next
-					curr = next; 
-					hnd = manager.at(curr);
-
-					// find where curr previously stored
-					if (auto it = indexer.find(hnd); it != indexer.end()) {
-						next = *it;
-					} else {
-						break;
-					}
-				}
-			}
-			
-			/*
-			if constexpr (storage_enabled) {
-				auto& storage = reg.template get_attribute<storage_type>();
-				// erase extra
-				std::size_t size = std::distance(manager.begin(), end);
-				if (size < storage.size()) {
-					storage.resize(size);
-				}
-				// initialize
-				if constexpr (initialize_event_enabled) {
-					for (auto it = begin; it < end; ++it) {
-						auto& val = storage.at(std::distance(manager.begin(), it));
-						std::construct_at(&val);
-						reg.template on<initialize_event>().invoke(*it, val);
-					}
-				}
-			}
-
-			manager.erase(end, manager.end());
-			*/
-		}
-
-	private:
-		// immediate policies
-
-		template<typename ... arg_Ts> requires (!storage_enabled || std::is_constructible_v<value_type, arg_Ts...>)
-		constexpr void _emplace_back(ecs::policy::immediate, std::span<handle_type> hnds, arg_Ts&& ... args) {
-			auto& manager = reg.template get_attribute<manager_type>();
-			auto& indexer = reg.template get_attribute<indexer_type>();
-
-			{ // indexer
-				for (std::size_t i = 0; i < hnds.size(); ++i) {
-					indexer.emplace(hnds.at(i), indexer.size());
-				}
-			}
-			
-			{ // manager
-				manager.reserve(manager.size() + hnds.size());
-				for (std::size_t i = 0; i < hnds.size(); ++i) {
-					manager.emplace_back(hnds.at(i));
-				}
-			}
-			
-			if constexpr (storage_enabled) {
-				auto& storage = reg.template get_attribute<storage_type>();
-
-				storage.reserve(storage.size() + hnds);
-				for (std::size_t i = 0; i < hnds.size(); ++i) {
-					storage.emplace_back(std::forward<arg_Ts>(args)...);
-				}
-
-				if constexpr (initialize_event_enabled) {
-					auto it = storage.end() - hnds.size();
-					for (std::size_t i = 0; i < hnds.size(); ++i) {
-						reg.template on<initialize_event>().invoke(hnds.at(i), *it++);
-					}
-				}
-			} else {
-				if constexpr (initialize_event_enabled) {
-					for (std::size_t i = 0; i < hnds.size(); ++i) {
-						reg.template on<initialize_event>().invoke(hnds.at(i));
-					}
-				}
-			}
-		}
-
-		template<typename ... arg_Ts> requires (!storage_enabled || std::is_constructible_v<value_type, arg_Ts...>)
-		constexpr void _emplace_at(policy::optimal, policy::immediate, std::size_t idx, std::span<handle_type> hnds, arg_Ts&&... args) {
-			/*
-			splits new elements into elements pushed_back and elements inserted
-			first pushes all elements beyond the bounds of the current range to
-			the back. then swaps old elements currently within range to back.
-			remaining new elements constructed inplace.
-			*/
-
-			std::size_t old_size = size();										// size of pool before emplace
-			std::size_t count = hnds.size();									// number of elements to emplace
-			std::size_t back_count = std::max<int>(0, idx + count - old_size);	// the number of elements pushed to back
-			std::size_t inplace_count = count - back_count;						// the number of new elements constructed inplace
-			std::size_t split = old_size - inplace_count;						// the index of the split between elements
-			
-			if constexpr (indexer_enabled) {
-				auto& indexer = reg.template get_attribute<indexer_type>();
-				for (std::size_t i = 0; i < count; ++i) {
-					indexer.emplace(hnds.at(i), i);
-				}
-				
-				for (std::size_t i = 0; i < count; ++i) {
-					indexer.at(at(i)) = count + i;
-				}
-			}
-
-			if constexpr (manager_enabled) {
-				auto& manager = reg.template get_attribute<manager_type>();
-				manager.reserve(old_size + count);
-		
-				for (std::size_t i = 0; i < back_count; ++i) {
-					manager.emplace_back(hnds.at(i + inplace_count));
-				}
-				
-				std::move(manager.begin() + split, manager.begin() + idx + inplace_count, std::back_inserter(manager));
-
-				for (std::size_t i = 0; i < inplace_count; ++i) {
-					std::construct_at(&manager.at(idx + i), hnds.at(i));
-				}
-			}
-
-			if constexpr (storage_enabled) {
-				auto& storage = reg.template get_attribute<storage_type>();
-				storage.reserve(old_size + count);
-		
-				for (std::size_t i = 0; i < back_count; ++i) {
-					storage.emplace_back(std::forward<arg_Ts>(args)...);
-				}
-				
-				std::move(storage.begin() + split, storage.begin() + idx + inplace_count, std::back_inserter(storage));
-
-				std::for_each(storage.begin() + idx, count, [&](auto& val) {
-					std::construct_at(&val, std::forward<arg_Ts>(args)...);
-				});
-				
-				if constexpr (initialize_event_enabled) {
-					for (std::size_t i = 0; i < count; ++i) {
-						reg.template on<initialize_event>().invoke(hnds.at(i), component_at(idx + i));
-					}
-				}
-			} else {
-				if constexpr (initialize_event_enabled) {
-					for (std::size_t i = 0; i < count; ++i) {
-						reg.template on<initialize_event>().invoke(hnds.at(i));
-					}
-				}
-			}
-		}
-
-		template<typename ... arg_Ts> requires (!storage_enabled || std::is_constructible_v<value_type, arg_Ts...>)
-		constexpr void _emplace_at(policy::strict, policy::immediate, std::size_t idx, std::span<handle_type> hnds, arg_Ts&&... args) {
-			/*
-			splits new elements into elements pushed to back and elements constructed
-			inplace. All new elements beyond the bounds of the current range are
-			emplaced to the back. old elements are moved beyond the range and new
-			elements are constructed inplace.
-			*/
-			
-			std::size_t old_size = size();										// size of pool before emplace
-			std::size_t count = hnds.size();									// number of elements to emplace
-			std::size_t back_count = std::max<int>(0, idx + count - old_size);	// the number of new elements pushed to back
-			std::size_t inplace_count = count - back_count;						// the number of new elements constructed inplace
-			std::size_t split = old_size - inplace_count;						// the index of the split between elements
-			
-			if constexpr (indexer_enabled) {
-				auto& indexer = reg.template get_attribute<indexer_type>();
-				
-				for (std::size_t i = idx; i < old_size; ++i) {
-					indexer.at(at(i)) = i + count;
-				}
-				for (std::size_t i = 0; i < count; ++i) {
-					indexer.emplace(hnds.at(i), idx + i);
-				}
-			}
-			
-			if constexpr (manager_enabled) {
-				auto& manager = reg.template get_attribute<manager_type>();
-				manager.reserve(old_size + count);
-				
-				for (std::size_t i = 0; i < back_count; ++i) {
-					manager.emplace_back(hnds.at(i + inplace_count));
-				}
-
-				std::move(manager.begin() + split, manager.begin() + old_size, std::back_inserter(manager));
-				std::move_backward(manager.begin() + idx, manager.begin() + split, manager.begin() + old_size);
-
-				for (std::size_t i = 0; i < back_count; ++i) {
-					std::construct_at(&manager.at(idx + i), hnds.at(i));
-				}
-			}
-
-			if constexpr (storage_enabled) {
-				auto& storage = reg.template get_attribute<storage_type>();
-
-				storage.reserve(old_size + count);
-
-				for (std::size_t i = 0; i < back_count; ++i) {
-					storage.emplace_back(std::forward<arg_Ts>(args)...);
-				}
-				
-				std::move(storage.begin() + split, storage.begin() + old_size, std::back_inserter(storage));
-				std::move_backward(storage.begin() + idx, storage.begin() + split, storage.begin() + old_size);
-
-				for (std::size_t i = 0; i < inplace_count; ++i) {
-					std::construct_at(&storage.at(idx + i), std::forward<arg_Ts>(args)...);
-				}
-				
-				if constexpr (initialize_event_enabled) {
-					for (std::size_t i = 0; i < count; ++i) {
-						reg.template on<initialize_event>().invoke(hnds.at(i), storage.at(idx + i));
-					}
-				}
-			} else {
-				if constexpr (initialize_event_enabled) {
-					for (std::size_t i = 0; i < count; ++i) {
-						reg.template on<initialize_event>().invoke(hnds.at(i));
-					}
-				}
-			}
-		}
-
-		constexpr void _erase_at(policy::optimal, policy::immediate, std::size_t idx, std::size_t count) {
-			auto& indexer = reg.template get_attribute<indexer_type>();
-			auto& manager = reg.template get_attribute<manager_type>();
-			
-			if constexpr (terminate_event_enabled) {
-				if constexpr (storage_enabled) {
-					for (std::size_t i = idx, n = idx + count; i < n; ++i) {
-						reg.template on<terminate_event>().invoke(at(i), component_at(i));
-					} 
-				} else {
-					for (std::size_t i = idx, n = idx + count; i < n; ++i) {
-						reg.template on<terminate_event>().invoke(at(i));
-					} 
-				}
-			}
-			
-			auto manager_dst = manager.begin() + idx;
-			auto manager_src = manager.end() - count;
-			
-			{ // indexer
-				std::size_t i = idx;
-				for (auto it = manager_src, end = manager.end(); it < end; ++it) {
-					indexer.at(*it) = i++;
-				}
-	
-				for (auto it = manager_dst, end = it + count; it < end; ++it) {
-					indexer.erase(*it);
-				}
-			}
-
-			{ // manager
-				if (manager_src != manager_dst) {
-					std::move(manager_src, manager.end(), manager_dst);
-				}
-				
-				manager.erase(manager_src, manager.end());
-			}
-			
-			if constexpr (storage_enabled) {
-				auto& storage = reg.template get_attribute<storage_type>();
-				
-				auto storage_dst = storage.begin() + idx;
-				auto storage_src = storage.end() - count;
-
-				if (storage_src != storage_dst) {
-					std::move(storage_src, storage.end(), storage_dst);
-				}
-				
-				storage.erase(storage_src, storage.end());
-			}
-		}
-
-		constexpr void _erase_at(policy::strict, policy::immediate, std::size_t idx, std::size_t count) {
-			auto& indexer = reg.template get_attribute<indexer_type>();
-			auto& manager = reg.template get_attribute<manager_type>();
-			
-			
-			if constexpr (terminate_event_enabled) {
-				if constexpr (storage_enabled) {
-					for (std::size_t i = idx, n = idx + count; i < n; ++i) {
-						reg.template on<terminate_event>().invoke(at(i), component_at(i));
-					} 
-				} else {
-					for (std::size_t i = idx, n = idx + count; i < n; ++i) {
-						reg.template on<terminate_event>().invoke(at(i));
-					} 
-				}
-			}
-			
-			auto manager_dst = manager.begin() + idx;
-			auto manager_src = manager_dst + count;
-			auto manager_end = manager.end() - count;
-			
-			{ // indexer
-				std::size_t i = idx;
-				for (auto it = manager_src; it < manager.end(); ++it) {
-					indexer.at(*it) = i -= count;
-				}
-	
-				for (auto it = manager_dst, end = manager_src; it < end; ++it) {
-					indexer.erase(*it);
-				}
-			}
-
-
-			{ // manager
-				if (manager_src != manager_dst) {
-					std::move(manager_src, manager.end(), manager_dst);
-				}
-				
-				manager.erase(manager_end, manager.end());
-			}
-			
-			if constexpr (storage_enabled) {
-				auto& storage = reg.template get_attribute<storage_type>();
-				
-				auto storage_dst = manager.begin() + idx;
-				auto storage_src = storage_dst + count;
-				auto storage_end = storage.end() - count;
-
-				if (storage_src != storage_dst) {
-					std::move(storage_src, storage.end(), storage_dst);
-				}
-
-				storage.erase(storage_end, storage.end());
-			}
-		}
-
-		constexpr void _clear(policy::immediate) {
 			if constexpr (terminate_event_enabled) {
 				auto invoker = reg.template on<terminate_event>();
 				for (std::size_t pos = 0; pos < size(); ++pos) {
-					
 					if constexpr (storage_enabled) {
 						invoker.invoke(at(pos), component_at(pos));
 					} else {
@@ -558,78 +428,21 @@ namespace ecs {
 				}
 			}
 
+			if constexpr (storage_enabled) {
+				reg.template get_attribute<storage_type>().clear();
+			}
+
 			if constexpr (manager_enabled) {
 				reg.template get_attribute<manager_type>().clear();
 			}
 
-			if constexpr (indexer_enabled) {
+			{ // indexer type
 				reg.template get_attribute<indexer_type>().clear();
 			}
-			
-			if constexpr (storage_enabled) {
-				reg.template get_attribute<storage_type>().clear();
-			}
 		}
-		
-		// deferred policies
-
-		constexpr void _emplace_back(ecs::policy::deferred, std::span<handle_type> hnds) requires (!storage_enabled || std::is_constructible_v<value_type>) {
-			auto& manager = reg.template get_attribute<manager_type>();
-			for (std::size_t i = 0; i < hnds.size(); ++i) {
-				manager.emplace_back(hnds.at(i));
-			}
-		}
-
-		constexpr void _emplace_at(policy::optimal, policy::deferred, std::size_t idx, std::span<handle_type> hnds) requires (!storage_enabled || std::is_constructible_v<value_type>) {
-			std::size_t old_size = size();										// size of pool before emplace
-			std::size_t count = hnds.size();									// number of elements to emplace
-			std::size_t back_count = std::max<int>(0, idx + count - old_size);	// the number of elements pushed to back
-			std::size_t inplace_count = count - back_count;						// the number of new elements constructed inplace
-			std::size_t split = old_size - inplace_count;						// the index of the split between elements
-			
-			auto& manager = reg.template get_attribute<manager_type>();
-			manager.reserve(old_size + count);
-
-			for (std::size_t i = 0; i < back_count; ++i) {
-				manager.emplace_back(hnds.at(i + inplace_count));
-			}
-			
-			std::move(manager.begin() + split, manager.begin() + idx + inplace_count, std::back_inserter(manager));
-
-			for (std::size_t i = 0; i < inplace_count; ++i) {
-				std::construct_at(&manager.at(idx + i), hnds.at(i));
-			}
-		}
-		
-		constexpr void _emplace_at(policy::strict, policy::deferred, std::size_t idx, std::span<handle_type> hnds) requires (!storage_enabled || std::is_constructible_v<value_type>) {
-			std::size_t old_size = size();										// size of pool before emplace
-			std::size_t count = hnds.size();									// number of elements to emplace
-			std::size_t back_count = std::max<int>(0, idx + count - old_size);	// the number of new elements pushed to back
-			std::size_t inplace_count = count - back_count;						// the number of new elements constructed inplace
-			std::size_t split = old_size - inplace_count;						// the index of the split between elements
-			
-			auto& manager = reg.template get_attribute<manager_type>();
-			manager.reserve(old_size + count);
-			
-			for (std::size_t i = 0; i < back_count; ++i) {
-				manager.emplace_back(hnds.at(i + inplace_count));
-			}
-
-			std::move(manager.begin() + split, manager.begin() + old_size, std::back_inserter(manager));
-			std::move_backward(manager.begin() + idx, manager.begin() + split, manager.begin() + old_size);
-
-			for (std::size_t i = 0; i < back_count; ++i) {
-				std::construct_at(&manager.at(idx + i), hnds.at(i));
-			}
-		}
-
-		//! constexpr void _erase(policy::optimal, policy::deferred, std::span<handle_type> hnds) { }
-
-		//! constexpr void _erase(policy::strict, policy::deferred, std::span<handle_type> hnds) { }
-
-		//! constexpr void _clear(policy::deferred) { }
 		
 	private:
 		reg_T& reg;
 	};
+	
 }

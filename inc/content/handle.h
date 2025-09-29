@@ -16,16 +16,16 @@ namespace ecs {
 			template<std::unsigned_integral, std::size_t> friend struct handle;
 			static constexpr T mask = ~static_cast<T>(-1ull << static_cast<std::size_t>((sizeof(T) * 8) - N));
 		public:
-			inline constexpr index() : data(0) { }
-			inline constexpr index(T val) : data(val & mask) { }
-			explicit inline constexpr index(handle<T, N> hnd) : data(hnd.data) { }
+			constexpr index() : data(0) { }
+			constexpr index(std::size_t val) : data(val & mask) { }
+			constexpr index(handle<T, N> hnd) : data(hnd.data) { }
 	
-			inline constexpr operator T() const { return data & mask; }
+			constexpr operator std::size_t() const { return data & mask; }
 			
-			friend inline constexpr bool operator==(index lhs, index rhs) { 
+			friend constexpr bool operator==(index lhs, index rhs) { 
 				return !((lhs.data ^ rhs.data) & mask); 
 			}
-			friend inline constexpr bool operator==(index lhs, tombstone rhs) { 
+			friend constexpr bool operator==(index lhs, tombstone rhs) { 
 				return mask == (lhs.data & mask); 
 			}
 		private:
@@ -40,46 +40,39 @@ namespace ecs {
 			static constexpr T increment = std::bit_floor(~mask) << 1;
 	
 		public:
-			inline constexpr version() : data(0) { }
-			inline constexpr version(T val) : data(val << offset) { }
-			explicit inline constexpr version(handle<T, N> hnd) : data(hnd.data) { }
+			constexpr version() : data(0) { }
+			constexpr version(std::size_t val) : data(val << offset) { }
+			constexpr version(handle<T, N> hnd) : data(hnd.data) { }
 	
-			inline constexpr operator T() const { return data & mask; }
+			constexpr operator std::size_t() const { return (data & mask); }
 			
-			inline constexpr version& operator++() { data += increment; return *this; }
-			inline constexpr version operator++(int) { auto tmp = *this; data += increment; return tmp; }
+			constexpr version& operator++() { data += increment; return *this; }
+			constexpr version operator++(int) { auto tmp = *this; data += increment; return tmp; }
 			
-			inline constexpr version& operator--() { data -= increment; return *this; }
-			inline constexpr version operator--(int) { auto tmp = *this; data -= increment; return tmp; }
-			
-			friend inline constexpr bool operator==(version lhs, version rhs) { 
+			friend constexpr bool operator==(version lhs, version rhs) { 
 				if constexpr (N == 0) return true;
 				else return !((lhs.data ^ rhs.data) & mask); 
-			}
-			friend inline constexpr bool operator==(version lhs, handle<T, N> rhs) { 
-				if constexpr (N == 0) return false; 
-				return (lhs.data ^ rhs.data) & mask;
 			}
 		private:
 			T data;
 		};
 		
-		inline constexpr handle() : data(-1) { }
-		
-		inline constexpr handle(tombstone) : data(-1) { }
-		inline constexpr handle& operator=(tombstone) { data = -1; return *this; }		
-		inline constexpr handle(index idx, version vers) : data(idx | vers) { }
+		constexpr handle() : data(-1) { }
+		constexpr handle(T data) : data(data) { }
+		constexpr handle(tombstone) : data(-1) { }
+		constexpr handle& operator=(tombstone) { data = -1; return *this; }
+		constexpr handle(index idx, version vers) : data(idx | vers) { }
 
-		inline constexpr handle& operator=(index other) { data = version{ *this } | other; return *this; }
-		inline constexpr handle& operator=(version other) { data = index{ *this } | other; return *this; }
+		constexpr handle& operator=(index other) { data = version{ *this } | other; return *this; }
+		constexpr handle& operator=(version other) { data = index{ *this } | other; return *this; }
 
-		inline explicit constexpr operator T() const { return data; }
+		constexpr operator std::size_t() const { return index{ *this }; }
 
-		friend inline constexpr bool operator==(handle lhs, handle rhs) { 
+		friend constexpr bool operator==(handle lhs, handle rhs) { 
 			return lhs.data == rhs.data;
 		}
 
-		friend inline constexpr bool operator==(handle lhs, tombstone rhs) { 
+		friend constexpr bool operator==(handle lhs, tombstone rhs) { 
 			return index{ lhs } == rhs;
 		}
 	private:

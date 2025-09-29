@@ -4,16 +4,17 @@
 
 // tags
 namespace ecs::tag {
-	struct attribute { }; /* a variable instanced once per registry */ 
-	struct entity { }; /* a table ID, with which multiple components can associate */ 
-	struct component { }; /* a data point which can dynamically be associate with an entity */ 
-	struct flag { }; /* a valueless and non iterable component */
-	struct event { }; /* a callback that executes attached listeners */
-	struct resource { }; /* a data point with a built handle management. */
+	struct attribute; /* a variable instanced once per registry */ 
+	struct entity; /* a table ID, with which multiple components can associate */ 
+	struct component; /* a data point which can dynamically be associate with an entity */ 
+	struct flag; /* a valueless and non iterable component */
+	struct event; /* a callback that executes attached listeners */
+	struct resource; /* a data point with a built handle management. */
+	struct asset; /* a data point with a built handle management. */
 
 	// TODO:
-	template<typename ... Ts> struct archetype : component { };
-	template<typename ... Ts> struct uniontype : component { };
+	// template<typename ... Ts> struct archetype : component { };
+	// template<typename ... Ts> struct uniontype : component { };
 }
 
 namespace ecs::policy {
@@ -23,8 +24,8 @@ namespace ecs::policy {
 	// ??? struct lazy { }; // reorders primary structures but waits until sync to call events or modify storage.
 
 	// sequence policy
-	struct optimal { }; // uses swap and insert or swap and pop to insert/erase component. 
-	struct strict { }; // maintains the order of components.
+	struct optimal; // uses swap and insert or swap and pop to insert/erase component. 
+	struct strict; // maintains the order of components.
 	// ??? struct grouped { }; // maintains the order of components.
 	// ??? struct sorted { }; // maintains the order of components.
 }
@@ -71,14 +72,13 @@ namespace ecs {
 
 	// attributes
 	template<ecs::traits::entity_class T>	 struct factory;
-	template<ecs::traits::entity_class T>	 struct archive;
 	template<ecs::traits::component_class T> struct manager;
 	template<ecs::traits::component_class T> struct indexer;
 	template<ecs::traits::component_class T> struct storage;
 
 
 	// components
-	// ? template<ecs::traits::event_class T> struct listener;
+	template<ecs::traits::event_class T> struct listener;
 
 	// events
 	namespace event {		
@@ -95,12 +95,13 @@ namespace ecs {
 	template<ecs::traits::entity_class T, typename reg_T> class generator;
 	template<ecs::traits::component_class T, typename reg_T> class pool;
 	template<typename select_T, typename from_T, typename where_T, typename reg_T> class view;
+	template<typename select_T, typename from_T, typename where_T, typename reg_T> class reverse_view;
 	template<typename lock_T, typename reg_T> class pipeline;
 
 	// iterators
 	template<typename select_T, typename from_T, typename where_T, typename reg_T> struct view_iterator;
 	struct view_sentinel;
-	
+
 	// view decorators
 	template<traits::component_class ... Ts> struct inc;
 	template<traits::component_class ... Ts> struct exc;

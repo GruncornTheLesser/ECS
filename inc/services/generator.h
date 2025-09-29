@@ -13,17 +13,16 @@ namespace ecs {
 		
 		static constexpr bool create_event_enabled = !std::is_void_v<create_event>;
 		static constexpr bool destroy_event_enabled = !std::is_void_v<destroy_event>;
-		
-		static_assert(!std::is_void_v<factory_type>);
-		
+
 	public:
-		inline constexpr generator(reg_T& reg) noexcept : reg(reg) { }
+		constexpr generator(reg_T& reg) noexcept : reg(reg) { }
 		
 		template<typename ... arg_Ts>
-		constexpr inline handle_type create(arg_Ts&& ... args) {
+		[[nodiscard]] constexpr handle_type create(arg_Ts&& ... args) {
 			auto& factory = reg.template get_attribute<factory_type>();
+			
 			handle_type hnd = factory.create(std::forward<arg_Ts>(args)...);
-
+			
 			if constexpr (create_event_enabled) {
 				reg.template on<create_event>().invoke(hnd);
 			}
@@ -31,23 +30,22 @@ namespace ecs {
 			return hnd;
 		}
 		
-		constexpr inline void destroy(handle_type hnd) {
+		constexpr void destroy(handle_type hnd) {
 			if (!alive(hnd)) return;
-
+			
+			auto& factory = reg.template get_attribute<factory_type>();
+			
 			if constexpr (destroy_event_enabled) {
 				reg.template on<destroy_event>().invoke(hnd);
 			}
 
-			auto& factory = reg.template get_attribute<factory_type>();
 			factory.destroy(hnd);
 		}
 
-		constexpr inline bool alive(handle_type hnd) {
-			return reg.template get_attribute<factory_type>().alive(hnd);
-		}
-	
-		constexpr inline void clear() {
-			// tricky...
+		[[nodiscard]] constexpr bool alive(handle_type hnd) {
+			auto& factory = reg.template get_attribute<factory_type>();
+
+			return factory.alive(hnd);
 		}
 	private:
 		reg_T& reg;

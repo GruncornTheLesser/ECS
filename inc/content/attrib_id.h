@@ -21,7 +21,7 @@
 #define FNV_OFFSET_64 0xCBF29CE484222325
 
 namespace ecs {
-	struct id {
+	struct attrib_id {
 	private:
 		static constexpr std::size_t str_hash(std::string_view str_view) { 
 			auto* str = str_view.data();
@@ -40,21 +40,21 @@ namespace ecs {
 		}
 
 		template<typename> friend struct std::hash;
-		template<typename T> inline static constexpr char reserve{};
+		template<typename T> static constexpr char reserve{};
 	public:
 		template<typename T>
-		consteval id(std::type_identity<T> val = std::type_identity<T>{}) : val(&reserve<T>), hash(type_hash<T>()) { }
+		consteval attrib_id(std::type_identity<T> val = std::type_identity<T>{}) : val(&reserve<T>), hash(type_hash<T>()) { }
 		template<std::size_t N>
-		consteval id(const char (&val)[N]) : val(static_cast<const void*>(val)), hash(str_hash(val)) { }
+		consteval attrib_id(const char (&val)[N]) : val(static_cast<const void*>(val)), hash(str_hash(val)) { }
 
-		constexpr friend bool operator==(const id& lhs, const id& rhs) { return lhs.val == rhs.val; }
-		constexpr friend bool operator!=(const id& lhs, const id& rhs) { return lhs.val != rhs.val; }
+		constexpr friend bool operator==(const attrib_id& lhs, const attrib_id& rhs) { return lhs.val == rhs.val; }
+		constexpr friend bool operator!=(const attrib_id& lhs, const attrib_id& rhs) { return lhs.val != rhs.val; }
 
-		constexpr friend bool operator<=(const id& lhs, const id& rhs) { return lhs.hash <= rhs.hash; }
-		constexpr friend bool operator<(const id& lhs, const id& rhs) { return lhs.hash < rhs.hash; }
+		constexpr friend bool operator<=(const attrib_id& lhs, const attrib_id& rhs) { return lhs.hash <= rhs.hash; }
+		constexpr friend bool operator<(const attrib_id& lhs, const attrib_id& rhs) { return lhs.hash < rhs.hash; }
 
-		constexpr friend bool operator>=(const id& lhs, const id& rhs) { return lhs.hash >= rhs.hash; }
-		constexpr friend bool operator>(const id& lhs, const id& rhs) { return lhs.hash > rhs.hash; }
+		constexpr friend bool operator>=(const attrib_id& lhs, const attrib_id& rhs) { return lhs.hash >= rhs.hash; }
+		constexpr friend bool operator>(const attrib_id& lhs, const attrib_id& rhs) { return lhs.hash > rhs.hash; }
 
 	private:
 		const void* val;
@@ -70,9 +70,9 @@ namespace ecs {
 
 namespace std {
 	template<> 
-	struct hash<ecs::id> {
+	struct hash<ecs::attrib_id> {
 		constexpr hash() = default;
-		constexpr size_t operator()(const ecs::id& id) const {
+		constexpr size_t operator()(const ecs::attrib_id& id) const {
 			return id.hash;
 		}
 	};
