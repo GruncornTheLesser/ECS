@@ -44,6 +44,8 @@ namespace ecs {
 		constexpr allocator_type& get_allocator() noexcept;
 		constexpr page_allocator_type& get_page_allocator() noexcept;
 
+		[[nodiscard]] constexpr std::size_t size() const;
+
 		constexpr T& at(key_type key);
 		constexpr const T& at(key_type key) const;
 
@@ -51,20 +53,19 @@ namespace ecs {
 		constexpr const_iterator end() const noexcept;
 		constexpr const_iterator cend() const noexcept;
 
-		[[nodiscard]] constexpr size_type size() const;
-
 		constexpr void clear() noexcept;
 
-		constexpr void emplace(key_type key, mapped_type val);
-		constexpr void erase(key_type key);
+		constexpr std::pair<iterator, bool> emplace(key_type key, mapped_type val);
+		constexpr std::size_t erase(key_type key);
 
-		constexpr iterator find(key_type key);
-		constexpr const_iterator find(key_type key) const;
-
+		[[nodiscard]] constexpr iterator find(key_type key);
+		[[nodiscard]] constexpr const_iterator find(key_type key) const;
+		
 		[[nodiscard]] constexpr bool contains(key_type key) const;
 	private:
 		allocator_type alloc;
 		data_type pages;
+		std::size_t count;
 	};
 
 	template<std::unsigned_integral T>
@@ -140,6 +141,13 @@ ecs::sparse<T, N>::get_page_allocator() noexcept {
 }
 
 template<std::unsigned_integral T, std::size_t N>
+[[nodiscard]] constexpr std::size_t ecs::sparse<T, N>::size() const {
+	return count;
+}
+
+
+
+template<std::unsigned_integral T, std::size_t N>
 constexpr T& ecs::sparse<T, N>::at(key_type key) {
 	std::size_t page_i = key / page_size;
 	std::size_t elem_i = key % page_size;
@@ -182,7 +190,7 @@ void constexpr ecs::sparse<T, N>::clear() noexcept {
 }
 
 template<std::unsigned_integral T, std::size_t N>
-constexpr void ecs::sparse<T, N>::emplace(key_type key, mapped_type val) {
+constexpr std::pair<typename ecs::sparse<T, N>::iterator, bool> ecs::sparse<T, N>::emplace(key_type key, mapped_type val) {
 	std::size_t page_i = key / page_size;
 	std::size_t elem_i = key % page_size;
 
@@ -196,25 +204,43 @@ constexpr void ecs::sparse<T, N>::emplace(key_type key, mapped_type val) {
 		page = page_type{ get_allocator().allocate(page_size), page_size };
 	}
 
-	page[elem_i] = val;
+	auto& elem = page[elem_i];
+
+	if (elem == tombstone) {
+		++count;
+		elem = val;
+		return std::pair{ iterator{ key, &elem }, true };
+	} else {
+		elem = val;
+		return std::pair{ iterator{ key, &elem }, false };
+	}
 }
 
 template<std::unsigned_integral T, std::size_t N>
-constexpr void ecs::sparse<T, N>::erase(key_type key) {
+constexpr std::size_t ecs::sparse<T, N>::erase(key_type key) {
 	std::size_t page_i = key / page_size;
 	std::size_t elem_i = key % page_size;
 
 	if (pages.size() >= page_i) {
-		return;
+		return 0;
 	}
 
 	auto& page = pages.at(page_i);
 
 	if (page.data() == nullptr) {
-		return;
+		return 0;
 	}
+	
+	auto& elem = page[elem_i];
 
-	page[elem_i] = tombstone;
+	if (elem == tombstone) {
+		return 0;
+	}
+	
+	--count;
+	elem = tombstone;
+	
+	return 1;
 }
 
 template<std::unsigned_integral T, std::size_t N>
@@ -233,7 +259,13 @@ ecs::sparse<T, N>::find(key_type key) {
 		return { key, nullptr };
 	}
 
-	return { key, &page[elem_i] };
+	auto& elem = page.at(elem_i);
+
+	if (elem == tombstone) {
+		return { key, nullptr };
+	}
+
+	return { key, &elem };
 }
 
 
@@ -253,7 +285,13 @@ ecs::sparse<T, N>::find(key_type key) const {
 		return { key, nullptr };
 	}
 
-	return { key, &page[elem_i] };
+	auto& elem = page.at(elem_i);
+	
+	if (elem == tombstone) {
+		return { key, nullptr };
+	}
+
+	return { key, &elem };
 }
 
 template<std::unsigned_integral T, std::size_t N>

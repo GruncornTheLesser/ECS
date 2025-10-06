@@ -6,7 +6,8 @@
 namespace ecs {
 	template<ecs::traits::component_class T, typename reg_T>
 	class pool {
-	private:
+		template<typename ... Ts> friend class registry;
+
 		using component_type = std::remove_const_t<T>;
 		using registry_type = reg_T;
 
@@ -37,13 +38,13 @@ namespace ecs {
 		static_assert(!storage_enabled || !manager_enabled || !std::is_same_v<storage_type, manager_type>);
 		
 		static_assert(indexer_enabled, "indexer disabled. Indexer required for all operations.");
-		static_assert(!manager_enabled || storage_enabled, "storage enabled but manager disabled. storage requires manager attribute.");
+		static_assert(!storage_enabled || manager_enabled , "storage enabled but manager disabled. storage requires manager attribute.");
 		static_assert(!terminate_event_enabled || manager_enabled, "terminate event enabled but manager disabled. Events require manager attribute.");
 		static_assert(!initialize_event_enabled || manager_enabled, "initialize event enabled but manager disabled. Events require manager attribute.");
 
-	public:
 		constexpr pool(reg_T& reg) noexcept : reg(reg) { }
-
+	
+	public:
 		[[nodiscard]] constexpr std::size_t size() const requires (manager_enabled) {
 			const auto& manager = reg.template get_attribute<const manager_type>();
 			return manager.size();
@@ -152,6 +153,9 @@ namespace ecs {
 		/** adds a component to the back of the pool */
 		template<typename ... arg_Ts> requires (!storage_enabled || std::is_constructible_v<value_type, arg_Ts...>)
 		constexpr decltype(auto) emplace_back(handle_type hnd, arg_Ts&&... args) {
+			assert(!contains(hnd));
+			assert(reg.alive(hnd));
+
 			auto& indexer = reg.template get_attribute<indexer_type>();
 			
 			if constexpr (manager_enabled) {
@@ -167,13 +171,13 @@ namespace ecs {
 					auto& val = storage.emplace_back(std::forward<arg_Ts>(args)...);
 
 					if constexpr (initialize_event_enabled) {
-						reg.template on<initialize_event>().invoke(hnd, val);
+						reg.template on<initialize_event>().invoke(reg, hnd, val);
 					}
 
 					return val;
 				} else {
 					if constexpr (initialize_event_enabled) {
-						reg.template on<initialize_event>().invoke(hnd);
+						reg.template on<initialize_event>().invoke(reg, hnd);
 					}
 				}
 			} else {
@@ -210,13 +214,13 @@ namespace ecs {
 					if constexpr (initialize_event_enabled) {
 						auto it = storage.end() - hnds.size();
 						for (std::size_t i = 0; i < hnds.size(); ++i) {
-							reg.template on<initialize_event>().invoke(hnds[i], *it++);
+							reg.template on<initialize_event>().invoke(reg, hnds[i], *it++);
 						}
 					}	
 				} else {
 					if constexpr (initialize_event_enabled) {
 						for (std::size_t i = 0; i < hnds.size(); ++i) {
-							reg.template on<initialize_event>().invoke(hnds[i]);
+							reg.template on<initialize_event>().invoke(reg, hnds[i]);
 						}
 					}
 				}
@@ -252,13 +256,13 @@ namespace ecs {
 				policy.emplace(storage, storage.begin() + idx, std::forward<arg_Ts>(args)...);
 			
 				if constexpr (initialize_event_enabled) {
-					reg.template on<initialize_event>().invoke(hnd, storage.at(idx));
+					reg.template on<initialize_event>().invoke(reg, hnd, storage.at(idx));
 				}
 				
 				return storage.at(idx);
 			} else {
 				if constexpr (initialize_event_enabled) {
-					reg.template on<initialize_event>().invoke(hnd);
+					reg.template on<initialize_event>().invoke(reg, hnd);
 				}
 			}
 		}
@@ -290,13 +294,13 @@ namespace ecs {
 			
 				if constexpr (initialize_event_enabled) {
 					for (auto hnd_it = hnds.begin() + idx, val_it = storage.begin() + idx, end = hnds.end(); hnd_it != end; ++hnd_it, ++val_it) {
-						reg.template on<initialize_event>().invoke(*hnd_it, *val_it);
+						reg.template on<initialize_event>().invoke(reg, *hnd_it, *val_it);
 					}
 				}
 			} else {
 				if constexpr (initialize_event_enabled) {
 					for (auto hnd_it = hnds.begin() + idx, end = hnds.end(); hnd_it != end; ++hnd_it) {
-						reg.template on<initialize_event>().invoke(*hnd_it);
+						reg.template on<initialize_event>().invoke(reg, *hnd_it);
 					}
 				}
 			}
@@ -315,9 +319,9 @@ namespace ecs {
 
 				if constexpr (terminate_event_enabled) {
 					if constexpr (storage_enabled) {
-						reg.template on<terminate_event>().invoke(at(idx), component_at(idx)); 
+						reg.template on<terminate_event>().invoke(reg, at(idx), component_at(idx)); 
 					} else {
-						reg.template on<terminate_event>().invoke(at(idx)); 
+						reg.template on<terminate_event>().invoke(reg, at(idx)); 
 					}
 				}
 
@@ -355,9 +359,9 @@ namespace ecs {
 
 			if constexpr (terminate_event_enabled) {
 				if constexpr (storage_enabled) {
-					reg.template on<terminate_event>().invoke(at(idx), component_at(idx)); 
+					reg.template on<terminate_event>().invoke(reg, at(idx), component_at(idx)); 
 				} else {
-					reg.template on<terminate_event>().invoke(at(idx)); 
+					reg.template on<terminate_event>().invoke(reg, at(idx)); 
 				}
 			}
 			
@@ -387,11 +391,11 @@ namespace ecs {
 			if constexpr (terminate_event_enabled) {
 				if constexpr (storage_enabled) {
 					for (std::size_t i = idx, n = idx + count; i < n; ++i) {
-						reg.template on<terminate_event>().invoke(at(i), component_at(i));
+						reg.template on<terminate_event>().invoke(reg, at(i), component_at(i));
 					} 
 				} else {
 					for (std::size_t i = idx, n = idx + count; i < n; ++i) {
-						reg.template on<terminate_event>().invoke(at(i));
+						reg.template on<terminate_event>().invoke(reg, at(i));
 					} 
 				}
 			}
@@ -421,9 +425,9 @@ namespace ecs {
 				auto invoker = reg.template on<terminate_event>();
 				for (std::size_t pos = 0; pos < size(); ++pos) {
 					if constexpr (storage_enabled) {
-						invoker.invoke(at(pos), component_at(pos));
+						invoker.invoke(reg, at(pos), component_at(pos));
 					} else {
-						invoker.invoke(at(pos));
+						invoker.invoke(reg, at(pos));
 					}
 				}
 			}
@@ -437,6 +441,7 @@ namespace ecs {
 			}
 
 			{ // indexer type
+				std::size_t sz = reg.template get_attribute<indexer_type>().size();
 				reg.template get_attribute<indexer_type>().clear();
 			}
 		}

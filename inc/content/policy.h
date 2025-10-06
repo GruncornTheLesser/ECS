@@ -69,7 +69,7 @@ namespace ecs::policy {
 			}
 			range.resize(range.size() - 1);
 
-			return std::ranges::subrange(range.end(), range.end());
+			return std::ranges::subrange(it, std::min(it + 1, range.end()));
 		}
 
 		constexpr auto erase_n(auto& range, auto it, std::size_t n) {
@@ -80,8 +80,7 @@ namespace ecs::policy {
 			} 
 			range.resize(range.size() - count);
 
-			return std::ranges::subrange(range.end(), range.end());
-
+			return std::ranges::subrange(it, std::min(end, range.end()));
 		}
 	};
 

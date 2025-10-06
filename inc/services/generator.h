@@ -24,7 +24,7 @@ namespace ecs {
 			handle_type hnd = factory.create(std::forward<arg_Ts>(args)...);
 			
 			if constexpr (create_event_enabled) {
-				reg.template on<create_event>().invoke(hnd);
+				reg.template on<create_event>().invoke(reg, hnd);
 			}
 
 			return hnd;
@@ -36,7 +36,7 @@ namespace ecs {
 			auto& factory = reg.template get_attribute<factory_type>();
 			
 			if constexpr (destroy_event_enabled) {
-				reg.template on<destroy_event>().invoke(hnd);
+				reg.template on<destroy_event>().invoke(reg, hnd);
 			}
 
 			factory.destroy(hnd);

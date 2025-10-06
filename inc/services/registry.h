@@ -2,7 +2,7 @@
 #include "core/traits.h"
 
 #if ECS_DYNAMIC_REGISTRY
-#include "content/attrib_id.h"
+#include "content/id.h"
 #include <unordered_map>
 #endif
 
@@ -10,121 +10,151 @@
 #include <type_traits>
 
 namespace ecs {
-	template<typename ... Ts> 
-	class registry {
-	public:
-		struct erased_cache_t {
-			virtual void construct(registry<Ts...>& reg) = 0;
-			virtual void destroy(registry<Ts...>& reg) = 0;
-			virtual void acquire(registry<Ts...>& reg, priority p) = 0;
-			virtual void acquire(registry<Ts...>& reg, priority p) const = 0;
-			virtual void release(registry<Ts...>& reg) = 0;
-			virtual void release(registry<Ts...>& reg) const = 0;
-		};
+	template<typename reg_T>
+	struct erased_cache {
+		virtual void construct(reg_T& reg) = 0;
+		virtual void destroy(reg_T& reg) = 0;
+
+		virtual void acquire(reg_T& reg, priority p) = 0;
+		virtual void acquire(const reg_T& reg, priority p) const = 0;
 		
-		template<traits::attribute_class T>
-		struct cache_t final : erased_cache_t  { 
-			using value_type = traits::attribute::get_value_t<T>;
-			using mutex_type = util::eval_if_t<traits::attribute::get_mutex_t<T>, std::is_void, util::wrap_<std::type_identity>::template type>;
-			
-			using acquire_event = traits::attribute::get_acquire_event_t<T>;
-			using release_event = traits::attribute::get_release_event_t<T>;
-			
-			static constexpr bool acquire_enabled = !std::is_void_v<acquire_event>;
-			static constexpr bool release_enabled = !std::is_void_v<release_event>;
-
-			cache_t() : mutex() { }
-			~cache_t() { }
-			cache_t(const cache_t&) = delete;
-			cache_t& operator=(const cache_t&) = delete;
-			cache_t(cache_t&& other) : value(std::move(other.value)), mutex(std::move(other.mutex)) {
-			}
-			cache_t& operator=(cache_t&& other) {
-				if (this == &other) return *this;
-				value = std::move(other.value);
-				mutex = std::move(other.mutex);
-				return *this;
-			}
-
-			void construct(registry<Ts...>& reg) override {
-				std::construct_at(&value);
-
-				if constexpr (requires { T::construct(reg, value); }) {
-					T::construct(reg, value);
-				}
-			}
-				
-			void destroy(registry<Ts...>& reg) override {
-				if constexpr (requires { T::destroy(reg, value); }) {
-					T::destroy(reg, value);
-				}
-
-				std::destroy_at(&value);
-			}
+		virtual void release(reg_T& reg) = 0;
+		virtual void release(const reg_T& reg) const = 0;
+	};
 	
-			void acquire(registry<Ts...>& reg, priority p) override { 
-				if constexpr (requires { mutex.lock(p); }) {
-					mutex.lock(p); 
-				}
-				else if constexpr (requires { mutex.lock(); }) {
-					mutex.lock(); 
-				}
-				
-				if constexpr (acquire_enabled) {
-					reg.template on<acquire_event>().invoke(value);
-				}
-			}
-	
-			void release(registry<Ts...>& reg) override { 
-				if constexpr (requires { mutex.unlock(); }) {
-					mutex.unlock(); 
-				}
-
-				if constexpr (release_enabled) {
-					reg.template on<release_event>().invoke(value);
-				}
-			}
-	
-			void acquire(registry<Ts...>& reg, priority p) const override { 
-				if constexpr (requires { mutex.shared_lock(p); }) {
-					mutex.shared_lock(); 
-				}
-				else if constexpr (requires { mutex.shared_lock(); }) {
-					mutex.shared_lock(); 
-				}
-				else if constexpr (requires { mutex.lock(p); }) {
-					mutex.lock(p); 
-				}
-				else if constexpr (requires { mutex.lock(); }) {
-					mutex.lock(); 
-				}
-
-				if constexpr (acquire_enabled) {
-					reg.template on<acquire_event>().invoke(value);
-				}
-			}
-	
-			void release(registry<Ts...>& reg) const override {
-				if constexpr (requires { mutex.unlock(); }) {
-					mutex.unlock(); 
-				}
-
-				if constexpr (release_enabled) {
-					reg.template on<release_event>().invoke(value);
-				}
-			}
-			
-			union { value_type value; };
-			mutable mutex_type mutex;
-		};
+	template<traits::attribute_class T, typename reg_T>
+	struct cache final : erased_cache<reg_T>  { 
+	private:
+		using value_type = traits::attribute::get_value_t<T>;
+		using mutex_type = traits::attribute::get_mutex_t<T>;
+		
+		using value_t = std::conditional_t<std::is_void_v<value_type>, std::type_identity<void>, value_type>;
+		using mutex_t = std::conditional_t<std::is_void_v<mutex_type>, std::type_identity<void>, mutex_type>;
 	public:
-		using static_dependencies = traits::dependencies::get_attribute_set_t<Ts...>;
-		using static_set_type = util::eval_each_t<static_dependencies, util::wrap_<cache_t>::template type>;
+		cache() : mutex() { }
+		~cache() { }
+		cache(const cache&) = delete;
+		cache& operator=(const cache&) = delete;
+		cache(cache&& other) : value(std::move(other.value)), mutex(std::move(other.mutex)) {
+		}
+		cache& operator=(cache&& other) {
+			if (this == &other) return *this;
+			value = std::move(other.value);
+			mutex = std::move(other.mutex);
+			return *this;
+		}
+
+		void construct(reg_T& reg) override {
+			std::construct_at(&value);
+
+			if constexpr (requires { T::construct(reg, value); }) {
+				T::construct(reg, value);
+			}
+		}
+			
+		void destroy(reg_T& reg) override {
+			if constexpr (requires { T::destroy(reg, value); }) {
+				T::destroy(reg, value);
+			}
+
+			std::destroy_at(&value);
+		}
+
+		void acquire(reg_T& reg, priority p) override { 
+			if constexpr (requires { mutex.lock(p); }) {
+				mutex.lock(p); 
+			}
+			else if constexpr (requires { mutex.lock(); }) {
+				mutex.lock(); 
+			}
+		}
+
+		void acquire(const reg_T& reg, priority p) const override { 
+			if constexpr (requires { mutex.shared_lock(p); }) {
+				mutex.shared_lock(); 
+			}
+			else if constexpr (requires { mutex.shared_lock(); }) {
+				mutex.shared_lock(); 
+			}
+			else if constexpr (requires { mutex.lock(p); }) {
+				mutex.lock(p); 
+			}
+			else if constexpr (requires { mutex.lock(); }) {
+				mutex.lock(); 
+			}
+		}
+
+		void release(reg_T& reg) override { 
+			if constexpr (requires { mutex.unlock(); }) {
+				mutex.unlock(); 
+			}
+		}
+
+	
+		void release(const reg_T& reg) const override {
+			if constexpr (requires { mutex.unlock(); }) {
+				mutex.unlock(); 
+			}
+		}
+		
+		union { value_t value; };
+		mutable mutex_t mutex;
+	};
+
+	template<typename ... Ts> 
+	class registry {	
+		template<typename T> using bind_t = traits::registry_bind_t<T, registry<Ts...>>;
+		
+		template<typename T>
+		using cache_t = ecs::cache<bind_t<T>, ecs::registry<Ts...>>;
+		
+		template<typename T>
+		using invoker_t = ecs::invoker<util::copy_const_t<bind_t<T>, T>, util::copy_const_t<registry<Ts...>, T>>;
+
+		template<typename T>
+		using generator_t = ecs::generator<util::copy_const_t<bind_t<T>, T>, util::copy_const_t<registry<Ts...>, T>>;
+
+		template<typename T>
+		using pool_t = ecs::pool<util::copy_const_t<bind_t<T>, T>, util::copy_const_t<registry<Ts...>, T>>;
+
+		template<typename select_T, typename from_T, typename where_T, bool is_const>
+		struct get_view;
+
+		template<typename ... select_Ts, typename from_T, typename ... where_Ts, bool is_const>
+		struct get_view<select<select_Ts...>, from<from_T>, where<where_Ts...>, is_const> {
+			using type = ecs::view<select<util::copy_const_t<bind_t<select_Ts>, select_Ts>...>, from<bind_t<from_T>>, where<bind_t<where_Ts>...>, std::conditional_t<is_const, const registry<Ts...>, registry<Ts...>>>;
+		};
+
+		template<typename select_T, typename from_T, typename where_T, bool is_const=false>
+		using view_t = typename get_view<select_T, from_T, where_T, is_const>::type;
+
+		template<typename select_T, typename from_T, typename where_T, bool is_const>
+		struct get_rview;
+
+		template<typename ... select_Ts, typename from_T, typename ... where_Ts, bool is_const>
+		struct get_rview<select<select_Ts...>, from<from_T>, where<where_Ts...>, is_const> {
+			using type = ecs::reverse_view<select<util::copy_const_t<bind_t<select_Ts>, select_Ts>...>, from<bind_t<from_T>>, where<bind_t<where_Ts>...>, std::conditional_t<is_const, const registry<Ts...>, registry<Ts...>>>;
+		};
+
+		template<typename select_T, typename from_T, typename where_T, bool is_const=false>
+		using rview_t = typename get_view<select_T, from_T, where_T, is_const>::type;
+
+		template<typename T>
+		using get_component_handle_t = traits::component::get_handle_t<bind_t<T>>;
+
+		template<typename T>
+		using get_entity_handle_t = traits::entity::get_handle_t<bind_t<T>>;
+	
+	public:
+		using static_dependencies = traits::dependencies::get_attribute_set_t<std::tuple<Ts...>, registry<Ts...>>;
+
+		template<typename ... Us> static constexpr auto static_set_builder(std::type_identity<std::tuple<Us...>>) -> std::tuple<cache<Us, registry<Ts...>>...>;
+		using static_cache_t = decltype(static_set_builder(std::type_identity<static_dependencies>{}));
 		
 		#if ECS_DYNAMIC_REGISTRY
-		using dynamic_set_type = std::unordered_map<attrib_id, erased_cache_t*>;
+		using dynamic_cache_t = std::unordered_map<id, erased_cache<registry<Ts...>>*>;
 		#endif
-	public:
+	
 		registry() {
 			using init_sequence = util::sort_by_t<static_dependencies, traits::attribute::get_init_priority>;
 			util::apply<init_sequence>([&]<typename ... attrib_Ts>() { 
@@ -133,10 +163,10 @@ namespace ecs {
 		};
 		~registry() {
 			#if ECS_DYNAMIC_REGISTRY
-			for (auto& [id, cache] : dynamic_set) { 
-				cache->destroy(*this);
-				delete cache;
-			}
+				for (auto& [id, cache] : dynamic_set) { 
+					cache->destroy(*this);
+					delete cache;
+				}
 			#endif
 			
 			using term_sequence = util::reverse_t<util::sort_by_t<static_dependencies, traits::attribute::get_init_priority>>;
@@ -144,6 +174,7 @@ namespace ecs {
 				(get_cache<attrib_Ts>().destroy(*this), ...);
 			});
 		}
+
 		registry(const registry&) = delete;
 		registry& operator=(const registry&) = delete;
 		registry(registry&& other) { 
@@ -177,164 +208,94 @@ namespace ecs {
 			return *this;
 		}
 
+	private:
+		/* returns the caches for a attribute type. */
+		template<traits::attribute_class T> requires (util::pred::contains_v<static_dependencies, bind_t<T>>)
+		util::copy_const_t<cache_t<T>, T>& get_cache() {
+			return std::get<cache_t<std::remove_const_t<T>>>(static_cache);
+		}
+
+		/* returns the caches for a attribute type. */
+		template<traits::attribute_class T> requires (util::pred::contains_v<static_dependencies, bind_t<T>>)
+		std::add_const_t<cache_t<T>>& get_cache() const {
+			return std::get<cache_t<std::remove_const_t<T>>>(static_cache);
+		}
+
 		#if ECS_DYNAMIC_REGISTRY
-		template<typename ... Us> requires (!traits::is_attribute_v<Ts> && ...)
+		template<traits::attribute_class T> requires (!util::pred::contains_v<static_dependencies, bind_t<T>>)
+		util::copy_const_t<cache_t<T>, T>&  get_cache() {
+			return *static_cast<const cache_t<T>*>(dynamic_set.at(std::type_identity<T>{}));
+		}
+		
+		template<traits::attribute_class T> requires (!util::pred::contains_v<static_dependencies, bind_t<T>>)
+		std::add_const_t<cache_t<T>>& get_cache() const {
+			return *static_cast<const cache_t<T>*>(dynamic_set.at(std::type_identity<T>{}));
+		}
+		#endif
+
+	public:	
+		#if ECS_DYNAMIC_REGISTRY
+		template<typename ... Us> requires (!util::pred::contains_v<static_dependencies, bind_t<Us>> && ...)
 		void cache() {
-			using cache_sequence = util::eval_t<
-				traits::dependencies::get_attribute_set_t<Ts...>, 
-				util::sort_by_<traits::attribute::get_init_priority>::template type,
-				util::filter_<util::pred::element_of_<static_dependencies>::template type>::template type
-			>;
+			using cache_sequence = util::eval_t<traits::dependencies::get_attribute_set_t<std::tuple<Us...>, registry<Ts...>>, util::sort_by_<traits::attribute::get_init_priority>::template type>;
 			
 			util::apply_each<cache_sequence>([&]<typename T>{ 
 				if (auto it = dynamic_set.find(std::type_identity<T>{}); it == dynamic_set.end()) {
 					cache_t<T>* cache = new cache_t<T>(); // allocate cache
 					cache->construct(*this);
-	
-					it = dynamic_set.emplace_hint(it, attrib_id(std::type_identity<T>{}), cache);
+
+					it = dynamic_set.emplace_hint(it, id(std::type_identity<T>{}), cache);
 				}
 			});
 		}
 		#endif
 
-		/* caches a attribute, creates a new attribute cache if one isnt already cached. */
-		template<traits::attribute_class T> requires (util::pred::contains_v<static_dependencies, std::remove_const_t<T>>) 
-		cache_t<T>& cache() {
-			return std::get<cache_t<T>>(static_set);
-		}
-		
-		#if ECS_DYNAMIC_REGISTRY
-		template<traits::attribute_class T> requires (!util::pred::contains_v<static_dependencies, std::remove_const_t<T>>) 
-		cache_t<T>& cache() {
-			if (auto it = dynamic_set.find(std::type_identity<T>{}); it == dynamic_set.end()) {
-				cache_t<T>* cache = new cache_t<T>(); // allocate cache
-				cache->construct(*this);
-
-				it = dynamic_set.emplace_hint(it, attrib_id(std::type_identity<T>{}), cache);
-			}
-			else {
-				return *static_cast<cache_t<T>*>(it->second);
-			}
-		}
-		#endif
-		
-		/* returns the caches for a attribute type. */
-		template<traits::attribute_class T> requires (util::pred::contains_v<static_dependencies, std::remove_const_t<T>>)
-		util::copy_const_t<cache_t<std::remove_const_t<T>>, T>& get_cache() {
-			return std::get<cache_t<std::remove_const_t<T>>>(static_set);
-		}
-
-		/* returns the caches for a attribute type. */
-		template<traits::attribute_class T> requires (util::pred::contains_v<static_dependencies, std::remove_const_t<T>>)
-		std::add_const_t<cache_t<std::remove_const_t<T>>>& get_cache() const {
-			return std::get<cache_t<std::remove_const_t<T>>>(static_set);
-		}
-
-		#if ECS_DYNAMIC_REGISTRY
-		template<traits::attribute_class T> requires (!util::pred::contains_v<static_dependencies, std::remove_const_t<T>>)
-		util::copy_const_t<cache_t<std::remove_const_t<T>>, T>&  get_cache() {
-			return *static_cast<const cache_t<T>*>(dynamic_set.at(std::type_identity<T>{}));
-		}
-		
-		template<traits::attribute_class T> requires (!util::pred::contains_v<static_dependencies, std::remove_const_t<T>>)
-		std::add_const_t<cache_t<std::remove_const_t<T>>>& get_cache() const {
-			return *static_cast<const cache_t<T>*>(dynamic_set.at(std::type_identity<T>{}));
-		}
-		#endif
-
-		/* returns a pointer to a attribute type if cached. if no attribute cached, returns nullptr. */
-		template<traits::attribute_class T> requires (util::pred::contains_v<static_dependencies, std::remove_const_t<T>>)
-		util::copy_const_t<cache_t<std::remove_const_t<T>>, T>* try_cache() {
-			return &std::get<cache_t<std::remove_const_t<T>>>(static_set);
-		}
-
-		/* returns a pointer to a attribute type if cached. if no attribute cached, returns nullptr. */
-		template<traits::attribute_class T> requires (util::pred::contains_v<static_dependencies, std::remove_const_t<T>>)
-		std::add_const_t<cache_t<std::remove_const_t<T>>>* try_cache() const {
-			return &std::get<cache_t<std::remove_const_t<T>>>(static_set);
-		}
-
-		#if ECS_DYNAMIC_REGISTRY
-		template<traits::attribute_class T> requires (!util::pred::contains_v<static_dependencies, std::remove_const_t<T>>)
-		util::copy_const_t<cache_t<std::remove_const_t<T>>, T>* try_cache() {
-			if(auto it = dynamic_set.find(std::type_identity<T>{}); it == dynamic_set.cend()) {
-				return nullptr;
-			} 
-			else {
-				return static_cast<cache_t<std::remove_const_t<T>>*>(it->second);
-			}
-		}
-		
-		template<traits::attribute_class T> requires (!util::pred::contains_v<static_dependencies, std::remove_const_t<T>>)
-		std::add_const_t<cache_t<std::remove_const_t<T>>>* try_cache() const {
-			if(auto it = dynamic_set.find(std::type_identity<T>{}); it == dynamic_set.cend()) {
-				return nullptr;
-			} else {
-				return static_cast<const cache_t<std::remove_const_t<T>>*>(it->second);
-			}
-		}
-		#endif
-
 		/* returns the value the attribute stored within the registry. */
-		template<traits::attribute_class T>
-		util::copy_const_t<traits::attribute::get_value_t<T>, T>& get_attribute() {
+		template<traits::attribute_class T> requires (ECS_DYNAMIC_REGISTRY || util::pred::contains_v<static_dependencies, bind_t<T>>)
+		util::copy_const_t<traits::attribute::get_value_t<bind_t<T>>, T>& get_attribute() {
 			return get_cache<T>().value;
 		}
 
 		/* returns the value the attribute stored within the registry. */
-		template<traits::attribute_class T>
-		std::add_const_t<traits::attribute::get_value_t<T>>& get_attribute() const {
+		template<traits::attribute_class T> requires (ECS_DYNAMIC_REGISTRY || util::pred::contains_v<static_dependencies, bind_t<T>>)
+		std::add_const_t<traits::attribute::get_value_t<bind_t<T>>>& get_attribute() const {
 			return get_cache<T>().value;
 		}
 
 		/* returns a pointer to the value of a attribute, if no attribute cached, returns nullptr. */
-		template<traits::attribute_class T> requires (util::pred::contains_v<static_dependencies, std::remove_const_t<T>>)
-		util::copy_const_t<traits::attribute::get_value_t<T>, T>* try_attribute() {
-			return &std::get<cache_t<std::remove_const_t<T>>*>(static_set).value;
+		template<traits::attribute_class T> requires (util::pred::contains_v<static_dependencies, bind_t<T>>)
+		util::copy_const_t<traits::attribute::get_value_t<bind_t<T>>, T>* try_attribute() {
+			return &get_cache<T>().value;
 		}
 
 		/* returns a pointer to the value of a attribute, if no attribute cached, returns nullptr. */
-		template<traits::attribute_class T> requires (util::pred::contains_v<static_dependencies, std::remove_const_t<T>>)
-		std::add_const_t<traits::attribute::get_value_t<T>>* try_attribute() const {
-			return &std::get<cache_t<std::remove_const_t<T>>*>(static_set).value;
+		template<traits::attribute_class T> requires (util::pred::contains_v<static_dependencies, bind_t<T>>)
+		std::add_const_t<traits::attribute::get_value_t<bind_t<T>>>* try_attribute() const {
+			return &get_cache<T>().value;
 		}
 
-		#if ECS_DYNAMIC_REGISTRY
-		template<traits::attribute_class T> requires (!util::pred::contains_v<static_dependencies, std::remove_const_t<T>>)
-		util::copy_const_t<traits::attribute::get_value_t<T>, T>* try_attribute() {
-			if (auto it = dynamic_set.find(std::type_identity<T>{}); it == dynamic_set.cend()) {
-				return nullptr;
-			} else {
+		template<traits::attribute_class T> requires (!util::pred::contains_v<static_dependencies, bind_t<T>>)
+		util::copy_const_t<traits::attribute::get_value_t<bind_t<T>>, T>* try_attribute() {
+			#if ECS_DYNAMIC_REGISTRY
+			auto it = dynamic_set.find(std::type_identity<T>{}); 
+			if (it != dynamic_set.cend()) {
 				return &static_cast<const cache_t<std::remove_const_t<T>>*>(it->second)->value;
 			}
-		}
+			#endif
+			return nullptr;
+		}	
 
-		template<traits::attribute_class T> requires (!util::pred::contains_v<static_dependencies, std::remove_const_t<T>>)
-		std::add_const_t<traits::attribute::get_value_t<T>>* try_attribute() const {
-			if (auto it = dynamic_set.find(std::type_identity<T>{}); it == dynamic_set.cend()) {
-				return nullptr;
-			} else {
-				return &static_cast<const cache_t<std::remove_const_t<T>>*>(it->second)->value;
-			}
-		}
-		#endif
-
-		template<typename ... dep_Ts>
+		template<typename ... Us> requires (ECS_DYNAMIC_REGISTRY || (util::pred::contains_v<static_dependencies, bind_t<Us>> && ...))
 		void lock(priority p = priority::MEDIUM) {
-			using lock_sequence = util::eval_t<traits::dependencies::get_attribute_set_t<dep_Ts...>, 
-				util::sort_by_<traits::attribute::get_lock_priority, util::get_type_name>::template type
-			>;
-			util::apply<lock_sequence>([&]<typename ... Res_Ts>{ 
+			using lock_sequence = util::eval_t<traits::dependencies::get_attribute_set_t<std::tuple<Us...>, registry<Ts...>>, util::sort_by_<traits::attribute::get_lock_priority, util::get_type_name>::template type, util::reverse>;
+			util::apply<lock_sequence>([&]<typename ... Res_Ts>{
 				(get_cache<Res_Ts>().acquire(p), ...); 
 			});
 		}
 
-		template<typename ... dep_Ts>
+		template<typename ... Us> requires (ECS_DYNAMIC_REGISTRY || (util::pred::contains_v<static_dependencies, bind_t<Us>> && ...))
 		void unlock() {
-			using lock_sequence = util::eval_t<traits::dependencies::get_attribute_set_t<dep_Ts...>, 
-				util::sort_by_<traits::attribute::get_lock_priority, util::get_type_name>::template type,
-				util::reverse
-			>;
+			using lock_sequence = util::eval_t<traits::dependencies::get_attribute_set_t<std::tuple<Us...>, registry<Ts...>>, util::sort_by_<traits::attribute::get_lock_priority, util::get_type_name>::template type>;
 			util::apply<lock_sequence>([&]<typename ... Res_Ts>{ 
 				(get_cache<Res_Ts>().release(), ...); 
 			});
@@ -342,81 +303,81 @@ namespace ecs {
 
 		/* initializes an invoker service class for the event T. */
 		template<traits::event_class T>
-		ecs::invoker<T, registry<Ts...>> on() {
+		invoker_t<T> on() {
 			return *this;
 		}
 
 		/* initializes an invoker service class for the event T. */
 		template<traits::event_class T>
-		const ecs::invoker<T, const registry<Ts...>> on() const {
+		invoker_t<const T> on() const {
 			return *this;
 		}
 
 		/* initializes a generator service class for the entity T. */
 		template<traits::entity_class T>
-		ecs::generator<T, registry<Ts...>> generator() {
+		generator_t<T> generator() {
 			return *this;
 		}
 
 		/* initializes a generator service class for the entity T. */
 		template<traits::entity_class T=ECS_DEFAULT_ENTITY>
-		ecs::generator<T, const registry<Ts...>> generator() const {
+		generator_t<const T> generator() const {
 			return *this;
 		}
 
 		/* initializes a pool service class for the component T. */
 		template<traits::component_class T>
-		ecs::pool<T, registry<Ts...>> pool() {
+		pool_t<T> pool() {
 			return *this;
 		}
 
 		/* initializes a pool service class for the component T. */
 		template<traits::component_class T>
-		ecs::pool<const T, const registry<Ts...>> pool() const {
+		pool_t<const T> pool() const {
 			return *this;
 		}
 		
 		/* initializes a view service class. */
-		template<typename ... select_Ts, typename from_T=from<util::find_t<std::tuple<select_Ts...>, traits::is_component>>, typename where_T=ecs::where<>>
-		ecs::view<ecs::select<select_Ts...>, from_T, where_T, ecs::registry<Ts...>>
-		view(from_T from={}, where_T where={}) {
+		template<typename ... select_Ts, typename from_T=from<util::find_t<std::tuple<select_Ts...>, traits::is_component>>, typename ... where_Ts>
+		view_t<ecs::select<select_Ts...>, from_T, ecs::where<where_Ts...>>
+		view(from_T from={}, where_Ts&& ... where) {
 			return *this;
 		}
 
-		template<typename ... select_Ts, typename from_T=from<util::find_t<std::tuple<select_Ts...>, traits::is_component>>, typename where_T=ecs::where<>>
-		ecs::reverse_view<ecs::select<select_Ts...>, from_T, where_T, ecs::registry<Ts...>>
-		rview(from_T from={}, where_T where={}) {
+		template<typename ... select_Ts, typename from_T=from<util::find_t<std::tuple<select_Ts...>, traits::is_component>>, typename ... where_Ts>
+		rview_t<ecs::select<select_Ts...>, from_T, ecs::where<where_Ts...>>
+		rview(from_T from={}, where_Ts&& ... where) {
 			return *this;
 		}
 
 		/* initializes a view service class. */
-		template<typename ... select_Ts, typename from_T=from<util::find_t<std::tuple<select_Ts...>, traits::is_component>>, typename where_T=ecs::where<>>
-		ecs::view<ecs::select<const select_Ts...>, from_T, where_T, const ecs::registry<Ts...>>
-		view(from_T from={}, where_T where={}) const {
+		template<typename ... select_Ts, typename from_T=from<util::find_t<std::tuple<select_Ts...>, traits::is_component>>, typename ... where_Ts>
+		view_t<ecs::select<const select_Ts...>, from_T, ecs::where<where_Ts...>, true>
+		view(from_T from={}, where_Ts&& ... where) const {
 			return *this;
 		}
 
-		template<typename ... select_Ts, typename from_T=from<util::find_t<std::tuple<select_Ts...>, traits::is_component>>, typename where_T=ecs::where<>>
-		ecs::reverse_view<ecs::select<const select_Ts...>, from_T, where_T, const ecs::registry<Ts...>>
-		rview(from_T from={}, where_T where={}) const {
+		template<typename ... select_Ts, typename from_T=from<util::find_t<std::tuple<select_Ts...>, traits::is_component>>, typename ... where_Ts>
+		rview_t<ecs::select<const select_Ts...>, from_T, ecs::where<where_Ts...>, true>
+		rview(from_T from={}, where_Ts&& ... where) const {
 			return *this;
 		}
 
 		/* constructs and associates a component of type T to the entity ent. */
 		template<traits::component_class T, typename ... arg_Ts>
-		decltype(auto) emplace(traits::component::get_handle_t<T> ent, arg_Ts&& ... args) {
+		decltype(auto) emplace(get_component_handle_t<T> ent, arg_Ts&& ... args) {
 			return pool<T>().template emplace_back(ent, std::forward<arg_Ts>(args)...);
 		}
 
 		/* constructs and associates a component of type T to the entity ent, if not already present else returns original. */
 		template<traits::component_class T, typename seq_T=policy::optimal, typename ... arg_Ts>
-		decltype(auto) emplace_at(std::size_t idx, traits::component::get_handle_t<T> ent, arg_Ts&& ... args) {
+		decltype(auto) emplace_at(std::size_t idx, get_component_handle_t<T> ent, arg_Ts&& ... args) {
 			return pool<T>().template emplace_at<seq_T>(idx, ent, std::forward<arg_Ts>(args)...);
 		}
 
 		/* destroys the component of type T associated to the entity ent. */
 		template<traits::component_class comp_T, typename seq_T=policy::optimal>
-		void erase(traits::component::get_handle_t<comp_T> ent) {
+		void erase(get_component_handle_t<comp_T> ent) {
 			pool<comp_T>().template erase<seq_T>(ent);
 		}
 
@@ -434,43 +395,43 @@ namespace ecs {
 
 		/* returns true of entity ent has a component of type T associated. */
 		template<traits::component_class T>
-		bool has_component(traits::component::get_handle_t<T> ent) const {
+		bool has_component(get_component_handle_t<T> ent) const {
 			return pool<T>().contains(ent);
 		}
 		
 		/* returns the component of type T associated with the entity ent. */
 		template<traits::component_class T>
-		decltype(auto) get_component(traits::component::get_handle_t<T> ent) {
+		decltype(auto) get_component(get_component_handle_t<T> ent) {
 			return pool<T>().get_component(ent);
 		}
 
 		/* returns the component of type T associated with the entity ent. */
 		template<traits::component_class T>
-		decltype(auto) get_component(traits::component::get_handle_t<T> ent) const {
+		decltype(auto) get_component(get_component_handle_t<T> ent) const {
 			return pool<T>().get(ent);
 		}
 
 		/* creates a new entity of type T. */
 		template<traits::entity_class T=ECS_DEFAULT_ENTITY, typename ... arg_Ts>
-		traits::entity::get_handle_t<T> create(arg_Ts&& ... args) {
+		get_entity_handle_t<T> create(arg_Ts&& ... args) {
 			return generator<T>().create(std::forward<arg_Ts>(args)...);
 		}
 		
 		/* destroys entity ent and all associated components. */
 		template<traits::entity_class T=ECS_DEFAULT_ENTITY>
-		void destroy(traits::entity::get_handle_t<T> ent) {
+		void destroy(get_entity_handle_t<T> ent) {
 			generator<T>().destroy(ent);
 		}
 
 		/* returns true if entity handle alive. */
 		template<traits::entity_class T=ECS_DEFAULT_ENTITY>
-		bool alive(traits::entity::get_handle_t<T> ent) const {
+		bool alive(get_entity_handle_t<T> ent) const {
 			return generator<T>().alive(ent);
 		}
 	private:
-		static_set_type static_set;
+		static_cache_t static_cache;
 		#if ECS_DYNAMIC_REGISTRY
-		dynamic_set_type dynamic_set;
+		dynamic_cache_t dynamic_set;
 		#endif
 	};
 }

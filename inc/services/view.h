@@ -24,7 +24,8 @@ namespace ecs {
 	class view_iterator {
 		template<traits::component_class...> friend struct inc;
 		template<traits::component_class...> friend struct exc;
-		
+		template<traits::component_class, typename> friend class pool;
+
 	private:
 		using view_type = view<select_T, from_T, where_T, reg_T>;
 	
@@ -37,7 +38,10 @@ namespace ecs {
 		
 		using retrieve_set = util::filter_t<select_type, traits::is_component>;
 		using non_parallel_set = util::eval_t<retrieve_set, util::filter_<util::pred::disj_<ecs::traits::is_entity, util::cmp::to_<manager_type, util::cmp::is_ignore_const_same, ecs::traits::component::get_manager>::template type>::template inv>::template type>;
+
 		using non_parallel_iterators = decltype(util::apply<util::eval_each_t<non_parallel_set, ecs::traits::component::get_storage>>([]<typename ... Ts> { return std::make_tuple(std::declval<Ts>().begin()...); }));
+
+		
 	
 		static constexpr bool entity_access = util::pred::anyof_v<select_type, traits::is_entity>;
 		static constexpr bool random_access = std::tuple_size_v<non_parallel_set>;
@@ -48,7 +52,7 @@ namespace ecs {
 		using difference_type = std::ptrdiff_t;
 		using sentinel_type = view_sentinel;
 		
-		using value_type = util::eval_each_t<select_type, util::eval_if_<traits::is_entity, util::supersede_<const handle_type&>::template type>::template type, util::eval_<util::propagate_const_<traits::component::get_value>::template type, std::add_lvalue_reference>::template type>;
+		using value_type = util::eval_each_t<select_type, util::eval_if_<traits::is_entity, util::supersede_<handle_type>::template type, util::eval_<util::propagate_const_<traits::component::get_value>::template type, std::add_lvalue_reference>::template type>::template type>;
 
 		using reference = value_type;
 
@@ -60,19 +64,19 @@ namespace ecs {
 		view_iterator& operator=(view_iterator&& other) { reg = other.reg; pos = other.pos; }
 		
 		constexpr reference operator*() const {
-			const handle_type* hnd;
+			handle_type hnd;
 			if constexpr (entity_access || random_access) {
-				hnd = &reg->template pool<from_type>().at(pos);
+				hnd = reg->template pool<from_type>().at(pos);
 			}
 
 			return util::apply<select_type>([&]<typename ... Ts>() { 
 				return std::make_tuple([&]<typename T>() {
 					if constexpr (traits::is_entity_v<T>) {
-						return static_cast<const handle_type&>(*hnd);
-					} else if constexpr (util::cmp::is_ignore_const_same_v<manager_type, traits::component::get_manager_t<T>>) {
+						return hnd;
+					} else if constexpr (util::cmp::is_ignore_const_same_v<from_type, T>) {
 						return std::ref(reg->template pool<T>().component_at(pos));
 					} else {
-						return std::ref(reg->template pool<T>().get_component(*hnd));
+						return std::ref(reg->template pool<T>().get_component(hnd));
 					}
 				}.template operator()<Ts>()...);
 			});
@@ -93,6 +97,16 @@ namespace ecs {
 			return *this;
 		}
 		
+		constexpr view_iterator& operator+(int offset) requires (!random_access) {
+			pos += offset;
+			return *this;
+		}
+
+		constexpr view_iterator& operator-(int offset) requires (!random_access) {
+			pos -= offset;
+			return *this;
+		}
+
 		constexpr view_iterator operator++(int) { auto tmp = *this; ++pos; return tmp; }
 		constexpr view_iterator operator--(int) { auto tmp = *this; --pos; return tmp; }
 
@@ -104,18 +118,23 @@ namespace ecs {
 	private:
 		bool valid() {
 			return util::apply<non_parallel_set>([&]<typename ... Ts> {
-				const handle_type& hnd = reg->template pool<from_type>().at(pos);
-				
-				return ([&]<typename T>{ 	
-					auto& indexer = reg->template get_attribute<traits::component::get_indexer_t<T>>();
-					if (auto it = indexer.find(hnd); it == indexer.end()) {
-						auto& storage = reg->template get_attribute<traits::component::get_storage_t<T>>();
-						std::get<util::find_v<non_parallel_set, util::cmp::to_<T>::template type>>(its) = storage.at(it->second);
-						return true;
-					} else {
-						return false;
-					}
-				}.template operator()<Ts>() && ...);
+				if constexpr (!random_access) {
+					return true;
+				} else {
+					const handle_type& hnd = reg->template pool<from_type>().at(pos);
+					return ([&]<typename T>{ 
+						static constexpr std::size_t it_index = util::find_v<non_parallel_set, util::cmp::to_<T>::template type>;
+						auto& indexer = reg->template get_attribute<traits::component::get_indexer_t<T>>();
+						if (auto it = indexer.find(hnd); it == indexer.end()) {
+							auto& storage = reg->template get_attribute<traits::component::get_storage_t<T>>();
+							std::get<it_index>(its) = storage.at(it->second);
+							return true;
+						} else {
+							return false;
+						}
+					}.template operator()<Ts>() && ...);
+				}
+
 			}) && util::apply<where_T>([&]<typename ... where_Ts>{ 
 				return ([&]<typename T>() { return T{}(*this); }.template operator()<where_Ts>() && ...);
 			});
@@ -126,20 +145,19 @@ namespace ecs {
 		[[no_unique_address]] non_parallel_iterators its;
 	};
 
-	struct view_sentinel { };
-
 	template<typename select_T, typename from_T, typename where_T, typename reg_T>
 	class view {
+		template<typename ... Ts> friend class registry;
+		
 		using from_type = util::unwrap_t<from_T>;
-	public:
 		using iterator = view_iterator<select_T, from_T, where_T, reg_T>;
 		using const_iterator = view_iterator<util::eval_each_t<select_T, std::add_const>, from_T, where_T, reg_T>;
 		using reverse_iterator = std::reverse_iterator<iterator>;
 		using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 		using sentinel_type = view_sentinel;
-
-		[[nodiscard]] view(reg_T& reg) : reg(reg) { }
-
+	
+		constexpr view(reg_T& reg) : reg(reg) { }
+	public:
 		[[nodiscard]] constexpr iterator begin() { return ++iterator{ &reg, static_cast<std::size_t>(-1) }; }
 		[[nodiscard]] constexpr const_iterator begin() const { return ++const_iterator{ &reg, static_cast<std::size_t>(-1) }; }
 		[[nodiscard]] constexpr const_iterator cbegin() const { return ++const_iterator{ &reg, static_cast<std::size_t>(-1) }; }
@@ -160,7 +178,7 @@ namespace ecs {
 namespace std {
 	template<typename select_T, typename from_T, typename where_T, typename reg_T>
 	bool operator==(const std::reverse_iterator<ecs::view_iterator<select_T, from_T, where_T, reg_T>>& rev_it, ecs::view_sentinel) {
-    	return rev_it.base() == ecs::view_sentinel{ };
+		return rev_it.base() == ecs::view_sentinel{ };
 	}
 }
 

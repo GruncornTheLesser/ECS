@@ -60,14 +60,6 @@
 #define ECS_DEFAULT_DESTROY_EVENT ecs::event::destroy<T>
 #endif
 
-#ifndef ECS_DEFAULT_ACQUIRE_EVENT
-#define ECS_DEFAULT_ACQUIRE_EVENT ecs::event::acquire<T>
-#endif
-
-#ifndef ECS_DEFAULT_RELEASE_EVENT
-#define ECS_DEFAULT_RELEASE_EVENT ecs::event::release<T>
-#endif
-
 /* macro to ignore commas when passing macro arguments */
 #define EXPAND(...) __VA_ARGS__
 
@@ -118,19 +110,19 @@ static constexpr TYPE get_trait_##NAME##_v = get_trait_##NAME<T, D>::value;
 
 
 namespace ecs::traits {
-	TRAIT_ATTRIB_TYPE(ecs_category, ecs_category)
+	TRAIT_ATTRIB_TYPE(category, ecs_category)
 	
-	template<typename T> struct is_attribute : std::disjunction<std::is_same<get_trait_ecs_category_t<T, ECS_DEFAULT_TAG>, tag::attribute>, std::is_base_of<tag::attribute, get_trait_ecs_category_t<T, ECS_DEFAULT_TAG>>> { };
-	template<typename T> struct is_entity : std::disjunction<std::is_same<get_trait_ecs_category_t<T, ECS_DEFAULT_TAG>, tag::entity>, std::is_base_of<tag::entity, get_trait_ecs_category_t<T, ECS_DEFAULT_TAG>>> { };
-	template<typename T> struct is_component : std::disjunction<std::is_same<get_trait_ecs_category_t<T, ECS_DEFAULT_TAG>, tag::component>, std::is_base_of<tag::component, get_trait_ecs_category_t<T, ECS_DEFAULT_TAG>>> { };
-	template<typename T> struct is_event : std::disjunction<std::is_same<get_trait_ecs_category_t<T, ECS_DEFAULT_TAG>, tag::event>, std::is_base_of<tag::event, get_trait_ecs_category_t<T, ECS_DEFAULT_TAG>>> { };
+	template<typename T> struct is_attribute : std::disjunction<std::is_same<get_trait_category_t<T, ECS_DEFAULT_TAG>, tag::attribute>, std::is_base_of<tag::attribute, get_trait_category_t<T, ECS_DEFAULT_TAG>>> { };
+	template<typename T> struct is_entity : std::disjunction<std::is_same<get_trait_category_t<T, ECS_DEFAULT_TAG>, tag::entity>, std::is_base_of<tag::entity, get_trait_category_t<T, ECS_DEFAULT_TAG>>> { };
+	template<typename T> struct is_component : std::disjunction<std::is_same<get_trait_category_t<T, ECS_DEFAULT_TAG>, tag::component>, std::is_base_of<tag::component, get_trait_category_t<T, ECS_DEFAULT_TAG>>> { };
+	template<typename T> struct is_event : std::disjunction<std::is_same<get_trait_category_t<T, ECS_DEFAULT_TAG>, tag::event>, std::is_base_of<tag::event, get_trait_category_t<T, ECS_DEFAULT_TAG>>> { };
 }
 
 namespace ecs {
-	template<typename T, typename=traits::get_trait_ecs_category_t<T, ECS_DEFAULT_TAG>> struct attribute_traits;
-	template<typename T, typename=traits::get_trait_ecs_category_t<T, ECS_DEFAULT_TAG>> struct entity_traits;
-	template<typename T, typename=traits::get_trait_ecs_category_t<T, ECS_DEFAULT_TAG>> struct component_traits;
-	template<typename T, typename=traits::get_trait_ecs_category_t<T, ECS_DEFAULT_TAG>> struct event_traits;
+	template<typename T, typename=traits::get_trait_category_t<T, ECS_DEFAULT_TAG>> struct attribute_traits;
+	template<typename T, typename=traits::get_trait_category_t<T, ECS_DEFAULT_TAG>> struct entity_traits;
+	template<typename T, typename=traits::get_trait_category_t<T, ECS_DEFAULT_TAG>> struct component_traits;
+	template<typename T, typename=traits::get_trait_category_t<T, ECS_DEFAULT_TAG>> struct event_traits;
 
 	template<typename T> struct attribute_traits<const T, tag::attribute> : attribute_traits<T, tag::attribute> { };
 	template<typename T> struct entity_traits<const T, tag::entity> : entity_traits<T, tag::entity> { };
@@ -154,14 +146,6 @@ namespace ecs::traits::attribute {
 	/* the value of the attribute allows a decoupling of the attribute id type and the value return type. */
 	TRAIT_ATTRIB_TYPE(value, value_type)
 	TRAIT_TYPE(value, value_type, attribute)
-		
-	/* the event fired when a component is locked */
-	TRAIT_ATTRIB_TYPE(acquire_event, acquire_event)
-	TRAIT_TYPE(acquire_event, acquire_event, attribute)
-	
-	/* the event fired when a component is released */
-	TRAIT_ATTRIB_TYPE(release_event, release_event)
-	TRAIT_TYPE(release_event, release_event, attribute)
 }
 
 namespace ecs::traits::entity {
@@ -182,10 +166,6 @@ namespace ecs::traits::entity {
 	/* the factory is an attribute to create new handle indices. */
 	TRAIT_TYPE(factory, factory_type, entity)
 	TRAIT_ATTRIB_TYPE(factory, factory_type)
-
-	/* the archive is an attribute to store destroyed handles. */
-	TRAIT_TYPE(archive, archive_type, entity)
-	TRAIT_ATTRIB_TYPE(archive, archive_type)
 }
 
 namespace ecs::traits::component {
@@ -233,16 +213,41 @@ namespace ecs::traits::component {
 
 namespace ecs::traits::event {
 	/* the callback type decaring the function signature of the event */
-	TRAIT_ATTRIB_TYPE(callback, callback_type)
 	TRAIT_TYPE(callback, callback_type, event)
+	TRAIT_ATTRIB_TYPE(callback, callback_type)
 
 	/* the listener type is the function wrapper that fires each individual subscriber to an event */
-	TRAIT_ATTRIB_TYPE(listener, listener_type)
 	TRAIT_TYPE(listener, listener_type, event)
+	TRAIT_ATTRIB_TYPE(listener, listener_type)
 
 	/* the sequence policy determines the order of the executed listeners. */
-	TRAIT_ATTRIB_TYPE(sequence_policy, sequence_policy)
 	TRAIT_TYPE(sequence_policy, sequence_policy, event)
+	TRAIT_ATTRIB_TYPE(sequence_policy, sequence_policy)
+
+	/* the sequence policy determines the order of the executed listeners. */
+	// TRAIT_VALUE(bool, fire_once, fire_once_enabled, event)
+	// TRAIT_ATTRIB_VALUE(bool, fire_once, fire_once_enabled)
+}
+
+namespace ecs::traits { // reg rebind
+	template<typename T, typename reg_T>
+	struct registry_bind {
+		using type = std::remove_const_t<T>;
+	};
+
+	template<typename T, typename reg_T> requires requires { typename T::template rebind_registry<reg_T>; }
+	struct registry_bind<T, reg_T> {
+		using type = typename T::template rebind_registry<reg_T>;
+	};
+	
+	template<typename reg_T>
+	struct registry_bind_ {
+		template<typename T> using type = registry_bind<T, reg_T>;
+	};
+	
+	template<typename T, typename reg_T>
+	using registry_bind_t = typename registry_bind<T, reg_T>::type;
+
 }
 
 // dependencies
@@ -260,10 +265,13 @@ namespace ecs::traits::dependencies {
 	template<traits::event_class T> struct get_dependency_set<T> { using type = typename event_traits<T>::dependency_set; };
 
 	namespace details {	
-		template<typename Tup, typename Out=std::tuple<>>
+		template<typename Tup, typename reg_T, typename Out=std::tuple<>>
 		struct recurse_dependency_set {
-			using set = util::filter_t<Tup, util::pred::disj_<util::pred::element_of_<Out, util::cmp::is_ignore_const_same>::template type, std::is_void>::template inv>;
-			using dep = util::eval_t<Tup, util::eval_each_<util::propagate_const_each_<dependencies::get_dependency_set>::template type>::template type, util::concat, util::unique_<>::template type, util::filter_<std::is_void>::template inv>;
+			using bind_set = util::eval_each_t<Tup, util::propagate_const_<ecs::traits::registry_bind_<reg_T>::template type>::template type>;
+
+			using set = util::eval_t<bind_set, util::filter_<std::is_void>::template inv, util::filter_<util::pred::element_of_<Out, util::cmp::is_ignore_const_same>::template type>::template inv>;
+
+			using dep = util::eval_t<bind_set, util::eval_each_<util::propagate_const_each_<dependencies::get_dependency_set>::template type>::template type, util::concat, util::unique_<>::template type, util::filter_<std::is_void>::template inv>;
 			
 			static constexpr auto get_dependencies() {
 				if constexpr (!ECS_RECURSIVE_DEPENDENCY) {
@@ -271,27 +279,20 @@ namespace ecs::traits::dependencies {
 				} else if constexpr (std::is_same_v<std::tuple<>, set>) {
 					return std::type_identity<Out>{};
 				} else {
-					return std::type_identity<typename dependencies::details::recurse_dependency_set<dep, util::concat_t<std::tuple<Out, set>>>::type>{};
+					return std::type_identity<typename dependencies::details::recurse_dependency_set<dep, reg_T, util::concat_t<std::tuple<Out, set>>>::type>{};
 				}
 			}
 		public:
 			using type = decltype(get_dependencies())::type;
-		};
-		template<typename ... Ts> using recurse_dependency_set_t = typename recurse_dependency_set<Ts...>::type;
+		};		
+
+		template<typename Tup, typename reg_T> using recurse_dependency_set_t = typename recurse_dependency_set<Tup, reg_T>::type;
 	}
-	template<typename ... Ts> struct get_attribute_set { using type = util::filter_t<details::recurse_dependency_set_t<std::tuple<Ts...>>, is_attribute>; };
-	template<typename ... Ts> using get_attribute_set_t = typename get_attribute_set<Ts...>::type;
-
-	template<typename ... Ts> struct get_entity_set { using type = util::filter_t<details::recurse_dependency_set_t<std::tuple<Ts...>>, is_entity>; };
-	template<typename ... Ts> using get_entity_set_t = typename get_entity_set<Ts...>::type;
-
-	template<typename ... Ts> struct get_component_set { using type = util::filter_t<details::recurse_dependency_set_t<std::tuple<Ts...>>, is_component>; };
-	template<typename ... Ts> using get_component_set_t = typename get_component_set<Ts...>::type;
-
-	template<typename ... Ts> struct get_event_set { using type = util::filter_t<details::recurse_dependency_set_t<std::tuple<Ts...>>, is_event>; };
-	template<typename ... Ts> using get_event_set_t = typename get_event_set<Ts...>::type;
+	template<typename Tup, typename reg_T> struct get_attribute_set {
+		using type = util::filter_t<details::recurse_dependency_set_t<Tup, reg_T>, is_attribute>; 
+	};
+	template<typename Tup, typename reg_T> using get_attribute_set_t = typename get_attribute_set<Tup, reg_T>::type;
 } // ecs::traits::dependencies
-
 
 #undef EXPAND
 #undef TRAIT_TYPE
@@ -313,6 +314,10 @@ namespace ecs::tag {
 		using storage_type = void;
 		using manager_type = void;
 	};
+
+	struct monolith : component {
+		using entity_type = void;
+	};
 };
 
 namespace ecs {	
@@ -321,18 +326,15 @@ namespace ecs {
 		using value_type = traits::attribute::get_trait_value_t<T, traits::attribute::get_trait_value_t<tag_T, T>>;
 		using mutex_type = traits::attribute::get_trait_mutex_t<T, traits::attribute::get_trait_mutex_t<tag_T, ECS_DEFAULT_MUTEX>>;
 
-		using acquire_event = traits::attribute::get_trait_acquire_event_t<T, traits::attribute::get_trait_acquire_event_t<tag_T, ECS_DEFAULT_ACQUIRE_EVENT>>;
-		using release_event = traits::attribute::get_trait_release_event_t<T, traits::attribute::get_trait_release_event_t<tag_T, ECS_DEFAULT_RELEASE_EVENT>>;
-		
 		static constexpr int lock_priority = traits::attribute::get_trait_lock_priority_v<T, traits::attribute::get_trait_lock_priority_v<tag_T, 0>>;
 		static constexpr int init_priority = traits::attribute::get_trait_init_priority_v<T, traits::attribute::get_trait_init_priority_v<tag_T, 0>>;
 
-		using dependency_set = util::push_back_t<traits::dependencies::get_trait_dependencies_t<T, traits::dependencies::get_trait_dependencies_t<tag_T, std::tuple<>>>, acquire_event, release_event>;
+		using dependency_set = util::push_back_t<traits::dependencies::get_trait_dependencies_t<T, traits::dependencies::get_trait_dependencies_t<tag_T, std::tuple<>>>>;
 	};
 
 	template<typename T, typename tag_T>
 	struct entity_traits {
-		using handle_type = ecs::handle<traits::entity::get_trait_integral_t<T, uint32_t>, traits::entity::get_trait_version_width_v<T, 12>>;
+		using handle_type = ecs::handle<traits::entity::get_trait_integral_t<T, ECS_DEFAULT_HANDLE_INTEGRAL>, traits::entity::get_trait_version_width_v<T, ECS_DEFAULT_HANDLE_VERSION_WIDTH>>;
 		
 		using create_event = traits::entity::get_trait_create_event_t<T, traits::entity::get_trait_create_event_t<tag_T, ECS_DEFAULT_CREATE_EVENT>>;
 		using destroy_event = traits::entity::get_trait_destroy_event_t<T, traits::entity::get_trait_destroy_event_t<tag_T, ECS_DEFAULT_DESTROY_EVENT>>;
@@ -363,6 +365,9 @@ namespace ecs {
 	struct event_traits {
 		using callback_type = traits::event::get_trait_callback_t<T, traits::event::get_trait_callback_t<tag_T, void(T&)>>;
 		using listener_type = traits::event::get_trait_listener_t<T, traits::event::get_trait_listener_t<tag_T, listener<T>>>;
+		using sequence_policy = traits::event::get_trait_sequence_policy_t<T, traits::event::get_trait_sequence_policy_t<tag_T, ecs::policy::strict>>;
+
+		//? static constexpr bool fire_once_enabled = traits::event::get_trait_fire_once_v<T, traits::event::get_trait_fire_once_v<tag_T, ECS_DEFAULT_FIRE_ONCE>>;
 
 		using dependency_set = util::push_back_t<traits::dependencies::get_trait_dependencies_t<T, traits::dependencies::get_trait_dependencies_t<tag_T, std::tuple<>>>, listener<T>>;
 	};

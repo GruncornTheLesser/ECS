@@ -9,7 +9,7 @@ namespace ecs::tag {
 	struct component; /* a data point which can dynamically be associate with an entity */ 
 	struct flag; /* a valueless and non iterable component */
 	struct event; /* a callback that executes attached listeners */
-	struct resource; /* a data point with a built handle management. */
+	struct monolith; /* a data point unassociated with other components */
 	struct asset; /* a data point with a built handle management. */
 
 	// TODO:
@@ -47,10 +47,6 @@ namespace ecs::traits {
 	template<typename T> static constexpr bool is_event_v = is_event<T>::value;
 	template<typename T> concept event_class = is_event<T>::value;
 
-	//? template<typename T> struct is_resource;
-	//? template<typename T> static constexpr bool is_resource_v = is_resource<T>::value;
-	//? template<typename T> concept resource_class = is_resource<T>::value;
-
 	template<typename, typename=void, typename=void> struct view_builder;
 }
 
@@ -76,18 +72,15 @@ namespace ecs {
 	template<ecs::traits::component_class T> struct indexer;
 	template<ecs::traits::component_class T> struct storage;
 
-
 	// components
 	template<ecs::traits::event_class T> struct listener;
 
 	// events
 	namespace event {		
-		template<traits::entity_class T> struct create;
-		template<traits::entity_class T> struct destroy;
-		template<traits::component_class T> struct initialize;
-		template<traits::component_class T> struct terminate;
-		template<traits::attribute_class T> struct acquire;
-		template<traits::attribute_class T> struct release;
+		template<traits::entity_class T, typename reg_T=registry<>> struct create;
+		template<traits::entity_class T, typename reg_T=registry<>> struct destroy;
+		template<traits::component_class T, typename reg_T=registry<>> struct initialize;
+		template<traits::component_class T, typename reg_T=registry<>> struct terminate;
 	}
 
 	// services
@@ -100,7 +93,7 @@ namespace ecs {
 
 	// iterators
 	template<typename select_T, typename from_T, typename where_T, typename reg_T> struct view_iterator;
-	struct view_sentinel;
+	struct view_sentinel { };
 
 	// view decorators
 	template<traits::component_class ... Ts> struct inc;
