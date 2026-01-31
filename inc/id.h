@@ -2,36 +2,37 @@
 #include <cstdint>
 #include <string_view>
 
-
 namespace ecs {
 	struct id {
-		template<typename> friend struct std::hash;
-
 		template<typename T>
 		static consteval std::string_view get_name() {
 		#ifdef __clang__
 			std::size_t prefix = sizeof("static std::string_view ecs::id::get_name() [T = ") - 1;
 			std::size_t suffix = sizeof("]");
-			std::size_t length = sizeof(__PRETTY_FUNCTION__);
 			const char* data = __PRETTY_FUNCTION__;
 			// "static std::string_view ecs::id::get_name() [T = int]"
 		#elif defined(__GNUC__)
 			std::size_t prefix = sizeof("static constexpr std::string_view ecs::id::get_name() [with T = ") - 1;
 			std::size_t suffix = sizeof("; std::string_view = std::basic_string_view<char>]");
-			std::size_t length = sizeof(__PRETTY_FUNCTION__);
 			const char* data = __PRETTY_FUNCTION__;
 			// "static constexpr std::string_view ecs::id::get_name() [with T = int; std::string_view = std::basic_string_view<char>]"
 		#elif defined(_MSC_VER)
+			std::size_t prefix = sizeof("class std::basic_string_view<char,struct std::char_traits<char> > __cdecl ecs::id::get_name<");
+			std::size_t suffix = sizeof(">(void)");
+			const char* data = __FUNCSIG__;
 			return __FUNCSIG__;
+			// "class std::basic_string_view<char,struct std::char_traits<char> > __cdecl ecs::id::get_name<int>(void)"
 		#else
 		#error "compiler not recognized."
 		#endif
-			return { data + prefix, length - suffix - prefix };
+			std::size_t length = sizeof(__PRETTY_FUNCTION__) - prefix - suffix;
+			return { data + prefix, length };
 		}
 
 		static consteval std::size_t get_hash(const std::string_view str) { 
-			static constexpr std::size_t ROTATE = 5;
-			static constexpr std::size_t SEED = sizeof(std::size_t) == 64 ? 0x517CC1b727220A95 : 0x9e3779b9;
+			// Fx Hash
+			const std::size_t rotate = 5;
+			const std::size_t seed = sizeof(std::size_t) == 64 ? 0x517cc1b727220a95 : 0x9e3779b9;
 		
 			std::size_t count = str.size();
 			std::size_t index = 0;
@@ -41,7 +42,7 @@ namespace ecs {
 				while (count >= 8) {
 					alignas(uint64_t) char buffer[8];
 					str.copy(buffer, 8, index);
-					hash = (std::rotl(hash, ROTATE) ^ std::bit_cast<uint64_t>(buffer)) * SEED;
+					hash = (std::rotl(hash, rotate) ^ std::bit_cast<uint64_t>(buffer)) * seed;
 					count -= 8;
 					index += 8;
 				}
@@ -49,7 +50,7 @@ namespace ecs {
 				if (count >= 4) {
 					alignas(uint32_t) char buffer[4];
 					str.copy(buffer, 4, index);
-					hash = (std::rotl(hash, ROTATE) ^ std::bit_cast<uint32_t>(buffer)) * SEED;
+					hash = (std::rotl(hash, rotate) ^ std::bit_cast<uint32_t>(buffer)) * seed;
 					count -= 4;
 					index += 4;
 				}
@@ -57,7 +58,7 @@ namespace ecs {
 				while (count >= 4) {
 					alignas(uint32_t) char buffer[4];
 					str.copy(buffer, 4, index);
-					hash = (std::rotl(hash, ROTATE) ^ std::bit_cast<uint32_t>(buffer)) * SEED;
+					hash = (std::rotl(hash, rotate) ^ std::bit_cast<uint32_t>(buffer)) * seed;
 					count -= 4;
 					index += 4;
 				}
@@ -66,13 +67,13 @@ namespace ecs {
 			if (count >= 2) {
 				alignas(uint16_t) char buffer[2];
 				str.copy(buffer, 2, index);
-				hash = (std::rotl(hash, ROTATE) ^ std::bit_cast<uint16_t>(buffer)) * SEED;
+				hash = (std::rotl(hash, rotate) ^ std::bit_cast<uint16_t>(buffer)) * seed;
 				count -= 2;
 				index += 2;
 			}
 
 			if (count == 1) {
-				hash = (std::rotl(hash, ROTATE) ^ std::bit_cast<uint8_t>(str.back())) * SEED;
+				hash = (std::rotl(hash, rotate) ^ std::bit_cast<uint8_t>(str.back())) * seed;
 				count -= 1;
 				index += 1;
 			}
@@ -80,28 +81,22 @@ namespace ecs {
 			return hash;
 		}
 		
-		template<std::size_t N>
-		static consteval std::size_t get_hash(const char (&str)[N]) { 
-			return get_hash(std::string_view{ str });
-		}
-		
+		static constexpr std::size_t nullhash = static_cast<std::size_t>(-1);
 	public:
+		consteval id() : hash(nullhash) { }
+		consteval id(std::type_identity<void>) : hash(nullhash) { }
+		
 		template<typename T>
-		consteval id(std::type_identity<T> value) : value(get_name<T>().data()), hash(get_hash(get_name<T>())) { }
+		consteval id(std::type_identity<T>) : id(get_name<std::remove_cvref_t<T>>()) { }
 
 		template<std::size_t N>
-		consteval id(const char (&str)[N]) : value(str), hash(get_hash(str)) { }
+		consteval id(const char (&data)[N]) : id(std::string_view{ data }) { }
 
-		constexpr friend bool operator==(const id& lhs, const id& rhs) { return lhs.value == rhs.value; }
-		constexpr friend bool operator!=(const id& lhs, const id& rhs) { return lhs.value != rhs.value; }
+		consteval id(std::string_view str) : hash(get_hash(str)) { }
 
-		constexpr friend bool operator<=(const id& lhs, const id& rhs) { return lhs.hash <= rhs.hash; }
-		constexpr friend bool operator<(const id& lhs, const id& rhs) { return lhs.hash < rhs.hash; }
-
-		constexpr friend bool operator>=(const id& lhs, const id& rhs) { return lhs.hash >= rhs.hash; }
-		constexpr friend bool operator>(const id& lhs, const id& rhs) { return lhs.hash > rhs.hash; }
-
-		const char* value;
+		constexpr friend bool operator==(const id& lhs, const id& rhs) { return lhs.hash == rhs.hash; }
+		constexpr friend auto operator<=>(const id& lhs, const id& rhs) { return lhs.hash <=> rhs.hash; }
+		
 		std::size_t hash;
 	};
 }
@@ -113,5 +108,5 @@ namespace std {
 		constexpr std::size_t operator()(const ecs::id& id) const {
 			return id.hash;
 		}
-	};
+	};	
 }
