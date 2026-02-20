@@ -3,6 +3,7 @@
 #include <tuple>
 #include <cstddef>
 #include <cassert>
+#include <utility>
 
 namespace ecs {
 	template<typename> 
@@ -18,11 +19,11 @@ namespace ecs {
 
 	template<typename ... Ts>
 	struct iter : private iter_mixin<Ts, iter<Ts...>>..., iter_mixin<typename iter_traits<iter<Ts...>>::sentinel_mixin, iter<Ts...>> {
-		template<typename> friend class pool; // to allow iterator const cast for modifiers
-		template<typename...> friend struct iter;
+		template<typename>           friend class pool; // to allow iterator const cast for modifiers
+		template<typename...>        friend struct iter;
 		template<typename, typename> friend struct iter_mixin;
-		template<typename...> friend class iter_value;
-		template<typename...> friend class iter_reference;
+		template<typename...>        friend struct iter_value;
+		template<typename...>        friend struct iter_reference;
 	private:
 		using base_T = iter<Ts...>;
 		using traits = iter_traits<base_T>;
@@ -164,35 +165,44 @@ namespace ecs {
 	private:
 		using base_T = iter<Ts...>;
 		using traits = iter_traits<base_T>;
-		using mixin_tup_type = std::tuple<typename iter_mixin<Ts, base_T>::reference...>;
+		using mixin_set = decltype([]<std::size_t ... Is>(std::index_sequence<Is...>){ 
+			return std::type_identity<std::tuple<typename iter_mixin<std::tuple_element_t<Is, std::tuple<Ts...>>, base_T>::reference...>>{};
+		}(typename traits::compose_sequence{}))::type; 
 
 		static constexpr bool immutable_v = (std::is_const_v<Ts> && ...);
 		static constexpr bool mutable_v = (!std::is_const_v<Ts> && ...);
-	public:
 
+	public:
 		constexpr iter_reference(const iter_reference&) noexcept = delete;
 		constexpr iter_reference& operator=(const iter_reference&) noexcept = default;
-	
-		constexpr iter_reference(iter<Ts...>& it) : mixins(*(*iter<Ts...>::template get_mixin<Ts>(&it))...) { }
-	
+
+		constexpr iter_reference(iter<Ts...>& it)
+		 : mixins([&]<std::size_t ... Is>(std::index_sequence<Is...>)->mixin_set { 
+			return { *(*iter<Ts...>::template get_mixin<Is>(&it))... };
+		}(typename traits::compose_sequence{})) { }
+		
 	private:
 		constexpr explicit iter_reference(const iter_reference<const Ts...>& other) requires(mutable_v)
-		 : mixins([&]<std::size_t ... Is>(std::index_sequence<Is...>)-> mixin_tup_type { return { std::get<Is>(other.mixin)... }; }(std::make_index_sequence<sizeof...(Ts)>{})) { }
+		 : mixins([&]<std::size_t ... Is>(std::index_sequence<Is...>)->mixin_set { 
+			return { std::get<Is>(other.mixin)... };
+		}(std::make_index_sequence<std::tuple_size_v<mixin_set>>{})) { }
 	public:
 		constexpr iter_reference(const iter_reference<std::remove_const_t<Ts>...>& other) requires(immutable_v)
-		 : mixins([&]<std::size_t ... Is>(std::index_sequence<Is...>)-> mixin_tup_type { return { std::get<Is>(other.mixin)... }; }(std::make_index_sequence<sizeof...(Ts)>{})) { }
+		 : mixins([&]<std::size_t ... Is>(std::index_sequence<Is...>)->mixin_set { 
+			return { std::get<Is>(other.mixin)... };
+		}(std::make_index_sequence<std::tuple_size_v<mixin_set>>{})) { }
 
 		constexpr iter_reference& operator=(iter_reference<Ts...>&& other) requires (mutable_v) {
 			[&]<std::size_t ... Is>(std::index_sequence<Is...>) {
 				((std::get<Is>(mixins) = std::move(std::get<Is>(other.mixins))), ...);
-			}(std::make_index_sequence<sizeof...(Ts)>{});
+			}(std::make_index_sequence<std::tuple_size_v<mixin_set>>{});
 			return *this;
 		}
 
 		constexpr iter_reference& operator=(iter_value<Ts...>&& other) requires (mutable_v) {
 			[&]<std::size_t ... Is>(std::index_sequence<Is...>) {
 				((std::get<Is>(mixins) = std::move(std::get<Is>(other.mixins))), ...);
-			}(std::make_index_sequence<sizeof...(Ts)>{});
+			}(std::make_index_sequence<std::tuple_size_v<mixin_set>>{});
 			return *this;
 		}
 
@@ -200,42 +210,55 @@ namespace ecs {
 			using namespace std; 
 			[&]<std::size_t ... Is>(std::index_sequence<Is...>) { 
 				(swap(std::get<Is>(lhs.mixins), std::get<Is>(rhs.mixins)), ...);
-			}(std::make_index_sequence<sizeof...(Ts)>{});
+			}(std::make_index_sequence<std::tuple_size_v<mixin_set>>{});
 		}
 
 		friend constexpr void swap(const iter_reference& lhs, const iter_value<Ts...>& rhs) requires (mutable_v) {
 			using namespace std; 
 			[&]<std::size_t ... Is>(std::index_sequence<Is...>){ 
 				(swap(std::get<Is>(lhs.mixins), std::get<Is>(rhs.mixins)), ...);
-			}(std::make_index_sequence<sizeof...(Ts)>{});
+			}(std::make_index_sequence<std::tuple_size_v<mixin_set>>{});
+		}
+
+		constexpr operator std::tuple_element_t<0, iter_reference<Ts...>>() {
+			return get<0>(*this);
+		}
+
+		constexpr operator std::tuple_element_t<0, iter_reference<Ts...>>() const {
+			return get<0>(*this);
+		}
+
+		template<std::size_t I>
+		friend constexpr decltype(auto) get(const iter_reference& ref) {
+			return std::as_const(std::get<traits::template exposed_compose_index<I>>(ref.mixins));
 		}
 
 		template<std::size_t I>
 		friend constexpr decltype(auto) get(iter_reference& ref) {
-			return std::get<traits::template binding_mixin_index<I>>(ref.mixins);
+			return std::get<traits::template exposed_compose_index<I>>(ref.mixins);
 		}
 
 		template<std::size_t I>
 		friend constexpr decltype(auto) get(iter_reference&& ref) {
-			return std::get<traits::template binding_mixin_index<I>>(ref.mixins);
+			return std::get<traits::template exposed_compose_index<I>>(ref.mixins);
 		}
 
 		friend constexpr bool operator==(const iter_reference& lhs, const iter_reference& rhs) {
-			return std::get<traits::compare_mixin_index>(lhs.mixins) == std::get<traits::compare_mixin_index>(rhs.mixins);
+			return std::get<traits::compare_compose_index>(lhs.mixins) == std::get<traits::compare_compose_index>(rhs.mixins);
 		}
 		friend constexpr auto operator<=>(const iter_reference& lhs, const iter_value<std::remove_const_t<Ts>...>& rhs) {
-			return std::get<traits::compare_mixin_index>(lhs.mixins) <=> std::get<traits::compare_mixin_index>(rhs.mixins);
+			return std::get<traits::compare_compose_index>(lhs.mixins) <=> std::get<traits::compare_compose_index>(rhs.mixins);
 		}
 		
 		friend constexpr bool operator==(const iter_reference& lhs, const iter_value<std::remove_const_t<Ts>...>& rhs) { 
-			return std::get<traits::compare_mixin_index>(lhs.mixins) == std::get<traits::compare_mixin_index>(rhs.mixins);
+			return std::get<traits::compare_compose_index>(lhs.mixins) == std::get<traits::compare_compose_index>(rhs.mixins);
 		}
 		friend constexpr auto operator<=>(const iter_reference& lhs, const iter_reference& rhs) {
-			return std::get<traits::compare_mixin_index>(lhs.mixins) <=> std::get<traits::compare_mixin_index>(rhs.mixins);
+			return std::get<traits::compare_compose_index>(lhs.mixins) <=> std::get<traits::compare_compose_index>(rhs.mixins);
 		}
 
 	private:
-		mixin_tup_type mixins;
+		mixin_set mixins;
 	};
 
 	template<typename ... Ts>
@@ -244,31 +267,34 @@ namespace ecs {
 
 		using base_T = iter<Ts...>;
 		using traits = iter_traits<base_T>;
+		using mixin_set = decltype([]<std::size_t ... Is>(std::index_sequence<Is...>){ 
+			return std::type_identity<std::tuple<typename iter_mixin<std::tuple_element_t<Is, std::tuple<Ts...>>, base_T>::value_type...>>{};
+		}(typename traits::compose_sequence{}))::type; 
 
 		constexpr iter_value(iter_reference<Ts...>&& other) : mixins([&]<std::size_t ... Is>(std::index_sequence<Is...>)
 		 -> std::tuple<typename iter_mixin<Ts, base_T>::value_type...> {
 			return { std::move(std::get<Is>(other.mixins))... };
-		}(std::make_index_sequence<sizeof...(Ts)>{})) { }
+		}(std::make_index_sequence<std::tuple_size_v<mixin_set>>{})) { }
 
 		template<std::size_t I>
 		friend constexpr decltype(auto) get(iter_value<Ts...>& val) {
-			return std::get<traits::template binding_mixin_index<I>>(val.mixins);
+			return std::get<traits::template exposed_compose_index<I>>(val.mixins);
 		}
 
 		template<std::size_t I>
 		friend constexpr decltype(auto) get(const iter_value<Ts...>& val) {
-			return std::get<traits::template binding_mixin_index<I>>(val.mixins);
+			return std::get<traits::template exposed_compose_index<I>>(val.mixins);
 		}
 
 		friend constexpr bool operator==(const iter_value& lhs, const iter_value& rhs) {
-			return std::get<traits::compare_mixin_index>(lhs.mixins) == std::get<traits::compare_mixin_index>(rhs.mixins);
+			return std::get<traits::compare_compose_index>(lhs.mixins) == std::get<traits::compare_compose_index>(rhs.mixins);
 		}
 
 		friend constexpr auto operator<=>(const iter_value& lhs, const iter_value& rhs) {
-			return std::get<traits::compare_mixin_index>(lhs.mixins) <=> std::get<traits::compare_mixin_index>(rhs.mixins);
+			return std::get<traits::compare_compose_index>(lhs.mixins) <=> std::get<traits::compare_compose_index>(rhs.mixins);
 		}
 	private:
-		std::tuple<typename iter_mixin<Ts, base_T>::value_type...> mixins;
+		mixin_set mixins;
 	};
 }
 
@@ -276,19 +302,19 @@ namespace ecs {
 namespace std {
 	template<typename ... Ts>
 	struct tuple_size<ecs::iter_reference<Ts...>>
-	 : std::integral_constant<std::size_t, (ecs::tag_traits<Ts>::binding_mixin + ... + 0)> { };
+	 : std::integral_constant<std::size_t, (ecs::iter_tag_traits<Ts>::exposed_mixin + ... + 0)> { };
 
 	template<typename ... Ts>
 	struct tuple_size<ecs::iter_value<Ts...>> : tuple_size<ecs::iter_reference<Ts...>> { };
 
 	template<std::size_t I, typename ... Ts>
 	struct tuple_element<I, ecs::iter_reference<Ts...>>
-	 : std::tuple_element<ecs::iter_traits<ecs::iter<Ts...>>::template binding_mixin_index<I>, std::tuple<typename ecs::iter_mixin<Ts, ecs::iter<Ts...>>::reference...>> { };
+	 : std::type_identity<typename ecs::iter_mixin<std::tuple_element_t<ecs::iter_traits<ecs::iter<Ts...>>::template exposed_mixin_index<I>, std::tuple<Ts...>>, ecs::iter<Ts...>>::reference> { };
 	
 
 	template<std::size_t I, typename ... Ts>
 	struct tuple_element<I, ecs::iter_value<Ts...>>
-	 : std::tuple_element<ecs::iter_traits<ecs::iter<Ts...>>::template binding_mixin_index<I>, std::tuple<typename ecs::iter_mixin<Ts, ecs::iter<Ts...>>::value_type...>> { };
+	: std::type_identity<typename ecs::iter_mixin<std::tuple_element_t<ecs::iter_traits<ecs::iter<Ts...>>::template exposed_mixin_index<I>, std::tuple<Ts...>>, ecs::iter<Ts...>>::value_type> { };
 }
 
 // iter mixin
@@ -355,7 +381,7 @@ namespace ecs {
 
 		using elem_type = T*;
 		using page_type = T* const*;
-		using pool_type = typename iter_traits<base_T>::primary_pool;
+		using pool_type = typename traits::primary_pool;
 	public:
 		using difference_type = std::ptrdiff_t;
 		using reference = T&;
@@ -366,11 +392,11 @@ namespace ecs {
 		constexpr iter_mixin() noexcept = default;
 		constexpr iter_mixin(const iter_mixin& other) = default;
 		constexpr iter_mixin& operator=(const iter_mixin& other) = default;
-
-		constexpr iter_mixin(auto* view, std::size_t idx) noexcept
-		 : iter_mixin(view, idx, std::type_identity<void>{}) { }
-		constexpr iter_mixin(auto* view, std::size_t idx, const auto& hint) noexcept 
-		 : iter_mixin(&view->template pool<typename traits::primary_mixin>(), idx, hint) { }
+		constexpr iter_mixin(auto* container, std::size_t idx) noexcept
+		 : iter_mixin(container, idx, std::type_identity<void>{}) { }
+		constexpr iter_mixin(auto* container, std::size_t idx, const auto& hint) noexcept 
+		 : iter_mixin(&container->template pool<typename traits::from_type>(), idx, hint) { }
+		
 		constexpr iter_mixin(pool_type* pool, std::size_t idx, const auto& hint) noexcept {
 			if constexpr (std::is_same_v<std::remove_const_t<T>, entity> && requires { hint.entity_page_pointer; }) {
 				page = hint.entity_page_pointer;
@@ -547,7 +573,7 @@ namespace ecs {
 
 		constexpr iter_mixin() noexcept = default;
 		constexpr iter_mixin(auto* view, index_t idx) noexcept : iter_mixin(view, idx, std::type_identity<void>{ }) { }
-		constexpr iter_mixin(auto* view, index_t idx, const auto& hint) noexcept : iter_mixin(&view->template pool<typename traits::primary_mixin>(), idx, std::type_identity<void>{ }) { }
+		constexpr iter_mixin(auto* view, index_t idx, const auto& hint) noexcept : iter_mixin(&view->template pool<typename traits::from_type>(), idx, std::type_identity<void>{ }) { }
 		constexpr iter_mixin(pool_type* pool, index_t idx, const auto& hint) noexcept : pages(pool->template data<indirect>()), idx(static_cast<index_t>(idx))
 		{
 			if constexpr (requires { hint.indirect_pointer; }) {
@@ -616,46 +642,37 @@ namespace ecs {
 		using base_type = std::conditional_t<std::is_const_v<T>, const pool<std::remove_const_t<T>>*, pool<T>*>;
 	public:
 		using difference_type = std::ptrdiff_t;
-		struct reference;
 		struct value_type;
+		struct reference;
 
 		struct reference {
-			friend struct value_type;
-			
-			constexpr reference(T* ptr) : ptr(ptr) { }
+			constexpr reference(elem_type ptr) : ptr(ptr) { }
 			constexpr reference(const reference& other) = default;
 			constexpr reference& operator=(const reference& other) = default;
-			
-			operator elem_type() { return ptr; }
+
+			constexpr operator T_ptr() { return ptr; }
+			constexpr operator const T_ptr() const { return ptr; }
+			constexpr T_ptr operator->() const { return ptr; }
 
 			constexpr reference(reference&& other) : ptr(other.ptr) { }
-			constexpr reference& operator=(reference&& other) { }
-			constexpr reference& operator=(value_type&& other) { }
-			
-			T& operator*() { return *ptr; }
-			const T& operator*() const { return *ptr; }
-
-			elem_type operator->() { return ptr; }
-			const elem_type operator->() const { return ptr; }
-
-			friend constexpr void swap(reference lhs, reference rhs) { }
-			friend constexpr void swap(reference lhs, value_type& rhs) { }
+			constexpr reference& operator=(reference&& other) requires(!std::is_const_v<T>) { return *this; }
+			constexpr reference& operator=(value_type&& other) requires(!std::is_const_v<T>) { return *this; }
+			friend constexpr void swap(reference lhs, reference rhs) requires(!std::is_const_v<T>) { }
+			friend constexpr void swap(reference lhs, value_type& rhs) requires(!std::is_const_v<T>) { }
 		private:
-			elem_type ptr;
+			T_ptr ptr;
 		};
-
-		struct value_type {
-			friend struct reference;
-
-			constexpr value_type(reference&& ref) : ptr(ref.ptr) { }
-			constexpr value_type(value_type&& ref) : ptr(ref.ptr) { }
-			constexpr value_type& operator=(reference&& ref) { }
-			constexpr value_type& operator=(value_type&& other) { }
+		struct value_type { 
+			constexpr value_type(reference&& ref) { }
+			constexpr value_type(value_type&& val) { }
+			constexpr ~value_type() { }
+			constexpr value_type& operator=(reference&& ref) { return *this; }
+			constexpr value_type& operator=(value_type&& other) { return *this; }	
 		private:
-			elem_type ptr;
+			// bool value_stored;
+			// union { T value; };
 		};
-
-		
+				
 		// constructors
 		constexpr iter_mixin() noexcept = default;
 		constexpr iter_mixin(auto* view, index_t idx) noexcept : iter_mixin(view, idx, std::type_identity<void>{}) { }
@@ -671,8 +688,6 @@ namespace ecs {
 		template<typename Base_U> requires(std::is_const_v<T>)
 		constexpr iter_mixin(const iter_mixin<std::remove_const_t<T>, Base_U>& other)
 		 : base(other.base), elem(other.elem) { }
-		
-		constexpr bool valid() const { return elem != nullptr; }
 		
 		// iterator functions
 		constexpr reference operator*() const noexcept { return { elem }; }
@@ -692,41 +707,225 @@ namespace ecs {
 		elem_type elem;
 	};
 
-	/*
-	template<typename ... Ps, typename base_T> 
-	struct iter_mixin<inc<Ps...>, base_T> : struct iter_mixin<const inc<Ps...>, base_T>  { };
+	// from iterator mixin
+	template<typename T, typename base_T>
+	struct iter_mixin<from<T>, base_T> {
+		constexpr iter_mixin() noexcept = default;
+		constexpr iter_mixin(const iter_mixin& other) = default;
+		constexpr iter_mixin& operator=(const iter_mixin& other) = default;
 
-	template<typename ... Ps, typename base_T> 
-	struct iter_mixin<const inc<Ps...>, base_T> { 
-	
+		constexpr iter_mixin(auto* container, std::size_t idx) noexcept : iter_mixin(container, idx, std::type_identity<void>{}) { }
+		constexpr iter_mixin(auto* container, std::size_t idx, const auto& hint) noexcept { }
+	private:
+		template<typename Base_U>
+		constexpr explicit iter_mixin(const iter_mixin<const T, Base_U>& other) requires(!std::is_const_v<T>) { }
+	public:
+		template<typename Base_U>
+		constexpr explicit iter_mixin(const iter_mixin<std::remove_const_t<T>, Base_U>& other) requires(std::is_const_v<T>) { }
+		
+		friend constexpr void destroy(iter_mixin& mixin) { }
 	};
 
-	template<typename ... Ps, typename base_T> 
-	struct iter_mixin<exc<Ps...>, base_T> : struct iter_mixin<const exc<Ps...>, base_T>  { };
+	template<typename T, typename base_T>
+	struct iter_mixin<const from<T>, base_T> {
+		constexpr iter_mixin() noexcept = default;
+		constexpr iter_mixin(const iter_mixin& other) = default;
+		constexpr iter_mixin& operator=(const iter_mixin& other) = default;
 
-	template<typename ... Ps, typename base_T> 
-	struct iter_mixin<const exc<Ps...>, base_T> { 
-	
+		constexpr iter_mixin(auto* container, std::size_t idx) noexcept : iter_mixin(container, idx, std::type_identity<void>{}) { }
+		constexpr iter_mixin(auto* container, std::size_t idx, const auto& hint) noexcept { }
+	private:
+		template<typename Base_U>
+		constexpr explicit iter_mixin(const iter_mixin<const T, Base_U>& other) requires(!std::is_const_v<T>) { }
+	public:
+		template<typename Base_U>
+		constexpr explicit iter_mixin(const iter_mixin<std::remove_const_t<T>, Base_U>& other) requires(std::is_const_v<T>) { }
+		
+		friend constexpr void destroy(iter_mixin& mixin) { }
 	};
 
-	template<typename ... Ps, typename base_T> 
-	struct iter_mixin<any<Ps...>, base_T> : struct iter_mixin<const any<Ps...>, base_T>  { };
+	// inc pred iterator mixin
+	template<typename ... Ts, typename base_T> 
+	struct iter_mixin<inc<Ts...>, base_T> { 
+		using reference = std::type_identity<void>;
+		using value_type = std::type_identity<void>;
 
-	template<typename ... Ps, typename base_T> 
-	struct iter_mixin<const any<Ps...>, base_T> { 
-	
+		// constructors
+		constexpr iter_mixin() noexcept = default;
+		constexpr iter_mixin(const iter_mixin& other) = default;
+		constexpr iter_mixin& operator=(const iter_mixin& other) = default;
+
+		constexpr iter_mixin(auto* container, index_t idx) noexcept : iter_mixin(container, idx, std::type_identity<void>{}) { }
+		constexpr iter_mixin(auto* container, index_t idx, const auto& hint) noexcept : pools(std::addressof(container->template pool<std::remove_const_t<Ts>>())...) { }
+		
+		constexpr bool valid() const { 
+			entity ent = **base_T::template get_mixin<entity>(this);
+			return (std::get<const pool<Ts>*>(pools)->contains(ent) && ...);
+		}
+		
+		// iterator functions
+		constexpr reference operator*() const noexcept { return { }; }
+		
+		constexpr iter_mixin& operator++() { return *this; }
+		constexpr iter_mixin& operator--() { return *this; }
+
+		friend constexpr void destroy(iter_mixin& mixin) { }
+	private:
+		std::tuple<const pool<Ts>*...> pools;
 	};
 
-	template<typename ... Ps, typename base_T> 
-	struct iter_mixin<none<Ps...>, base_T> : struct iter_mixin<const none<Ps...>, base_T>  { };
+	template<typename ... Ts, typename base_T> 
+	struct iter_mixin<const inc<Ts...>, base_T> { 
+		using reference = std::type_identity<void>;
+		using value_type = std::type_identity<void>;
 
-	template<typename ... Ps, typename base_T> 
-	struct iter_mixin<const none<Ps...>, base_T> { 
-	
+		// constructors
+		constexpr iter_mixin() noexcept = default;
+		constexpr iter_mixin(const iter_mixin& other) = default;
+		constexpr iter_mixin& operator=(const iter_mixin& other) = default;
+
+		constexpr iter_mixin(auto* container, index_t idx) noexcept : iter_mixin(container, idx, std::type_identity<void>{}) { }
+		constexpr iter_mixin(auto* container, index_t idx, const auto& hint) noexcept : pools(std::addressof(container->template pool<std::remove_const_t<Ts>>())...) { }
+		
+		constexpr bool valid() const { 
+			entity ent = **base_T::template get_mixin<entity>(this);
+			return (std::get<const pool<Ts>*>(pools)->contains(ent) && ...);
+		}
+		
+		// iterator functions
+		constexpr reference operator*() const noexcept { return { }; }
+		
+		constexpr iter_mixin& operator++() { return *this; }
+		constexpr iter_mixin& operator--() { return *this; }
+
+		friend constexpr void destroy(iter_mixin& mixin) { }
+	private:
+		std::tuple<const pool<Ts>*...> pools;
 	};
-	
+
+
+	// exc pred iterator mixin
+	template<typename ... Ts, typename base_T> 
+	struct iter_mixin<exc<Ts...>, base_T> { 
+		using reference = std::type_identity<void>;
+		using value_type = std::type_identity<void>;
+
+		// constructors
+		constexpr iter_mixin() noexcept = default;
+		constexpr iter_mixin(const iter_mixin& other) = default;
+		constexpr iter_mixin& operator=(const iter_mixin& other) = default;
+
+		constexpr iter_mixin(auto* container, index_t idx) noexcept : iter_mixin(container, idx, std::type_identity<void>{}) { }
+		constexpr iter_mixin(auto* container, index_t idx, const auto& hint) noexcept : pools(std::addressof(container->template pool<std::remove_const_t<Ts>>())...) { }
+		
+		constexpr bool valid() const { 
+			entity ent = **base_T::template get_mixin<entity>(this);
+			return (!std::get<const pool<Ts>*>(pools)->contains(ent) && ...);
+		}
+		
+		// iterator functions
+		constexpr reference operator*() const noexcept { return { }; }
+		
+		constexpr iter_mixin& operator++() { return *this; }
+		constexpr iter_mixin& operator--() { return *this; }
+
+		friend constexpr void destroy(iter_mixin& mixin) { }
+	private:
+		std::tuple<const pool<Ts>*...> pools;
+	};
+
+	template<typename ... Ts, typename base_T> 
+	struct iter_mixin<const exc<Ts...>, base_T> { 
+		using reference = std::type_identity<void>;
+		using value_type = std::type_identity<void>;
+
+		// constructors
+		constexpr iter_mixin() noexcept = default;
+		constexpr iter_mixin(const iter_mixin& other) = default;
+		constexpr iter_mixin& operator=(const iter_mixin& other) = default;
+
+		constexpr iter_mixin(auto* container, index_t idx) noexcept : iter_mixin(container, idx, std::type_identity<void>{}) { }
+		constexpr iter_mixin(auto* container, index_t idx, const auto& hint) noexcept : pools(std::addressof(container->template pool<std::remove_const_t<Ts>>())...) { }
+		
+		constexpr bool valid() const { 
+			entity ent = **base_T::template get_mixin<entity>(this);
+			return (!std::get<const pool<Ts>*>(pools)->contains(ent) && ...);
+		}
+		
+		// iterator functions
+		constexpr reference operator*() const noexcept { return { }; }
+		
+		constexpr iter_mixin& operator++() { return *this; }
+		constexpr iter_mixin& operator--() { return *this; }
+
+		friend constexpr void destroy(iter_mixin& mixin) { }
+	private:
+		std::tuple<const pool<Ts>*...> pools;
+	};
+
+
+	// any pred iterator mixin
+	template<typename ... Ts, typename base_T> 
+	struct iter_mixin<any<Ts...>, base_T> { 
+		using reference = std::type_identity<void>;
+		using value_type = std::type_identity<void>;
+
+		// constructors
+		constexpr iter_mixin() noexcept = default;
+		constexpr iter_mixin(const iter_mixin& other) = default;
+		constexpr iter_mixin& operator=(const iter_mixin& other) = default;
+
+		constexpr iter_mixin(auto* container, index_t idx) noexcept : iter_mixin(container, idx, std::type_identity<void>{}) { }
+		constexpr iter_mixin(auto* container, index_t idx, const auto& hint) noexcept : pools(std::addressof(container->template pool<std::remove_const_t<Ts>>())...) { }
+		
+		constexpr bool valid() const { 
+			entity ent = **base_T::template get_mixin<entity>(this);
+			return (std::get<const pool<Ts>*>(pools)->contains(ent) || ...);
+		}
+		
+		// iterator functions
+		constexpr reference operator*() const noexcept { return { }; }
+		
+		constexpr iter_mixin& operator++() { return *this; }
+		constexpr iter_mixin& operator--() { return *this; }
+
+		friend constexpr void destroy(iter_mixin& mixin) { }
+	private:
+		std::tuple<const pool<Ts>*...> pools;
+	};
+
+	template<typename ... Ts, typename base_T> 
+	struct iter_mixin<const any<Ts...>, base_T> { 
+		using reference = std::type_identity<void>;
+		using value_type = std::type_identity<void>;
+
+		// constructors
+		constexpr iter_mixin() noexcept = default;
+		constexpr iter_mixin(const iter_mixin& other) = default;
+		constexpr iter_mixin& operator=(const iter_mixin& other) = default;
+
+		constexpr iter_mixin(auto* container, index_t idx) noexcept : iter_mixin(container, idx, std::type_identity<void>{}) { }
+		constexpr iter_mixin(auto* container, index_t idx, const auto& hint) noexcept : pools(std::addressof(container->template pool<std::remove_const_t<Ts>>())...) { }
+		
+		constexpr bool valid() const { 
+			entity ent = **base_T::template get_mixin<entity>(this);
+			return (std::get<const pool<Ts>*>(pools)->contains(ent) || ...);
+		}
+		
+		// iterator functions
+		constexpr reference operator*() const noexcept { return { }; }
+		
+		constexpr iter_mixin& operator++() { return *this; }
+		constexpr iter_mixin& operator--() { return *this; }
+
+		friend constexpr void destroy(iter_mixin& mixin) { }
+	private:
+		std::tuple<const pool<Ts>*...> pools;
+	};
+
+
 	template<auto P, typename base_T>
-	struct iter_mixin<pred<P>, base_T> {};
+	struct iter_mixin<pred<P>, base_T> { };
 	
 	template<id F, typename base_T>
 	struct iter_mixin<flag<F>, base_T> {};
@@ -739,7 +938,6 @@ namespace ecs {
 	
 	template<typename T, id ID, typename base_T>
 	struct iter_mixin<const resource<T, ID>, base_T> { };
-	*/
 }
 
 // iter sentinels
@@ -747,6 +945,7 @@ namespace ecs {
 	template<typename base_T>
 	struct iter_mixin<iter_sentinel<void>, base_T> {
 		using sentinel = base_T;
+
 		constexpr iter_mixin(auto* container, std::size_t idx, const auto& hint) { }
 	
 		template<typename Base_U>
@@ -759,7 +958,7 @@ namespace ecs {
 		using sentinel = iter_sentinel<T>;
 
 		constexpr iter_mixin(auto* container, std::size_t idx, const auto& hint)
-		 : extent(container->template pool<typename iter_traits<base_T>::primary_mixin>().size()), idx(idx) { }
+		 : extent(container->template pool<typename iter_traits<base_T>::from_type>().size()), idx(idx) { }
 
 		template<typename Base_U>
 		constexpr iter_mixin(const iter_mixin<T, Base_U>& other) : extent(extent), idx(idx) { }

@@ -7,14 +7,14 @@ namespace ecs {
 	template<typename ... Ts>
 	class view {
 	public:
-		using traits = iter_traits<iter<Ts...>>;
-		using primary_type = std::tuple_element_t<traits::primary_mixin_index, std::tuple<Ts...>>;
+		using iterator = iter<std::remove_reference_t<Ts>...>;
+		using sentinel = iter<std::remove_reference_t<Ts>...>::sentinel;
 
-		using iterator = iter<Ts...>;
-		using sentinel = iter<Ts...>::sentinel;
+		using traits = ecs::iter_traits<iterator>;
+		using primary_type = typename traits::primary_mixin;
+
 
 		view(registry<>& reg) : reg(reg) { }
-
 		constexpr iterator begin() noexcept { return { this, 0 }; }
 		constexpr sentinel end() noexcept { return { this, reg.template pool<typename traits::primary_mixin>().size() }; }
 		
@@ -38,8 +38,25 @@ namespace ecs {
 		std::size_t size() { 
 			return reg.template pool<primary_type>().size();
 		}
+
+		template<typename system_T>
+		auto visit(system_T&& visitor) {
+			auto it = this->begin();
+			auto end = this->end();
+			
+			while (it != end) {
+				auto ref = *it++;
+				using ref_type = decltype(ref);
+				
+				[&]<std::size_t ... Is>(std::index_sequence<Is...>) {
+					visitor([&]->Ts {
+					 	if constexpr (Is != -1) return get<Is>(ref);
+					 	else return Ts{};
+					 }()...);
+				}(typename traits::exposed_sequence{});
+			}
+		}
 	private:
 		registry<>& reg;
 	};
 }
-

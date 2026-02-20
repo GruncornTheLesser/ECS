@@ -35,24 +35,21 @@ namespace ecs {
 	struct indirect;
 
 	// tags
+	template<typename T> struct from;
+	template<typename...> struct inc;
+	template<typename...> struct exc;
+	template<typename...> struct any;
+	template<auto V>      struct pred;
+	template<id>          struct flag;
+	template<auto V> requires (std::is_enum_v<decltype(V)> || std::is_same_v<decltype(V), id>) struct state;
+	template<typename T, id id_v=std::type_identity<T>{}>  struct resource;
 	
-	template<typename...> struct inc { };
-	template<typename...> struct exc { };
-	template<typename...> struct any { };
-	template<typename...> struct none { };
-	template<auto V>      struct pred { };
-	template<id>          struct flag { };
-	template<auto V> requires (std::is_enum_v<decltype(V)>) struct state { };
-
 	/*
 	resource is a tag. wrap a type and id eg resource<character, "player">
 	resource doubles as a metaprogram to get resource id and resource type. eg resource<T>::id, resource<T>::type
 	*/
-	template<typename T, id id_v=std::type_identity<T>{}>  struct resource { static constexpr id ID = id_v; using type = T; };
-	template<typename T, id id_v, id def> struct resource<resource<T, id_v>, def> { static constexpr id ID = id_v; using type = T; };
 
-	template<typename T> struct from { static constexpr bool value = false; };
-	template<typename T> struct from<from<T>> { static constexpr bool value = true; };
+
 
 	template<typename ... Ts> class registry;
 	template<typename type_T, ecs::id key_V=std::type_identity<std::remove_const_t<type_T>>{}> struct cache;
@@ -72,7 +69,7 @@ namespace ecs {
 	// traits
 	template<typename T> struct system_traits;
 	template<typename T> struct iter_traits;
-	template<typename T> struct tag_traits;
+	template<typename T> struct iter_tag_traits;
 	
 	/*
 	namespace event {

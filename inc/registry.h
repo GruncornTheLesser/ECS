@@ -237,18 +237,8 @@ template<typename T>
 template<typename ... Ts>
 template<typename system_T>
 void ecs::registry<Ts...>::visit(system_T&& visitor) {
-	using view_type = typename ecs::system_traits<system_T>::type;
+	using sys_traits = typename ecs::system_traits<system_T>;
 	
-	view_type view(*this);
-
-	auto it = view.begin();
-	auto end = view.end();
-	
-	while (it != end) {
-		auto ref = *it++;
-		using ref_type = decltype(ref);
-		[&]<std::size_t ... Is>(std::index_sequence<Is...>) {
-			visitor(std::forward<std::tuple_element_t<Is, ref_type>>(get<Is>(ref))...);
-		}(std::make_index_sequence<std::tuple_size_v<ref_type>>{});
-	}
+	typename sys_traits::view_type view(*this);
+	return view.visit(std::forward<system_T>(visitor));
 }
