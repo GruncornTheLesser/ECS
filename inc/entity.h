@@ -2,6 +2,8 @@
 #include "fwd.h"
 #include <memory>
 
+
+
 namespace ecs {
 	template<>
 	class pool<entity> final {
@@ -23,10 +25,10 @@ namespace ecs {
 		
 	private:
 		entity** storage;
-		page_t* archive;
-        index_t extent;
-        index_t sparse_capacity;
-		index_t head;
+		page_t*  archive;
+        index_t  extent;
+        index_t  sparse_capacity;
+		index_t  head;
 	};
 }
 

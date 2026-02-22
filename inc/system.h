@@ -1,6 +1,5 @@
 #pragma once
 #include "fwd.h"
-#include "traits.h"
 #include "registry.h"
 
 namespace ecs {
