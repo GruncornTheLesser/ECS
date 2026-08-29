@@ -3,25 +3,25 @@
 #include <string_view>
 
 namespace ecs {
-	struct id {
+	struct label {
 		template<typename T>
 		static consteval std::string_view get_name() {
 		#ifdef __clang__
-			std::size_t prefix = sizeof("static std::string_view ecs::id::get_name() [T = ") - 1;
+			std::size_t prefix = sizeof("static std::string_view ecs::label::get_name() [T = ") - 1;
 			std::size_t suffix = sizeof("]");
 			const char* data = __PRETTY_FUNCTION__;
-			// "static std::string_view ecs::id::get_name() [T = int]"
+			// "static std::string_view ecs::label::get_name() [T = int]"
 		#elif defined(__GNUC__)
-			std::size_t prefix = sizeof("static constexpr std::string_view ecs::id::get_name() [with T = ") - 1;
+			std::size_t prefix = sizeof("static constexpr std::string_view ecs::label::get_name() [with T = ") - 1;
 			std::size_t suffix = sizeof("; std::string_view = std::basic_string_view<char>]");
 			const char* data = __PRETTY_FUNCTION__;
-			// "static constexpr std::string_view ecs::id::get_name() [with T = int; std::string_view = std::basic_string_view<char>]"
+			// "static constexpr std::string_view ecs::label::get_name() [with T = int; std::string_view = std::basic_string_view<char>]"
 		#elif defined(_MSC_VER)
-			std::size_t prefix = sizeof("class std::basic_string_view<char,struct std::char_traits<char> > __cdecl ecs::id::get_name<");
+			std::size_t prefix = sizeof("class std::basic_string_view<char,struct std::char_traits<char> > __cdecl ecs::label::get_name<");
 			std::size_t suffix = sizeof(">(void)");
 			const char* data = __FUNCSIG__;
 			return __FUNCSIG__;
-			// "class std::basic_string_view<char,struct std::char_traits<char> > __cdecl ecs::id::get_name<int>(void)"
+			// "class std::basic_string_view<char,struct std::char_traits<char> > __cdecl ecs::label::get_name<int>(void)"
 		#else
 		#error "compiler not recognized."
 		#endif
@@ -83,19 +83,19 @@ namespace ecs {
 		
 		static constexpr std::size_t nullhash = static_cast<std::size_t>(-1);
 	public:
-		consteval id() : hash(nullhash) { }
-		consteval id(std::type_identity<void>) : hash(nullhash) { }
+		consteval label() : hash(nullhash) { }
+		consteval label(std::type_identity<void>) : hash(nullhash) { }
 		
 		template<typename T>
-		consteval id(std::type_identity<T>) : id(get_name<std::remove_cvref_t<T>>()) { }
+		consteval label(std::type_identity<T>) : label(get_name<std::remove_cvref_t<T>>()) { }
 
 		template<std::size_t N>
-		consteval id(const char (&data)[N]) : id(std::string_view{ data }) { }
+		consteval label(const char (&data)[N]) : label(std::string_view{ data }) { }
 
-		consteval id(std::string_view str) : hash(get_hash(str)) { }
+		consteval label(std::string_view str) : hash(get_hash(str)) { }
 
-		constexpr friend bool operator==(const id& lhs, const id& rhs) { return lhs.hash == rhs.hash; }
-		constexpr friend auto operator<=>(const id& lhs, const id& rhs) { return lhs.hash <=> rhs.hash; }
+		constexpr friend bool operator==(const label& lhs, const label& rhs) { return lhs.hash == rhs.hash; }
+		constexpr friend auto operator<=>(const label& lhs, const label& rhs) { return lhs.hash <=> rhs.hash; }
 		
 		std::size_t hash;
 	};
@@ -103,10 +103,10 @@ namespace ecs {
 
 namespace std {
 	template<> 
-	struct hash<ecs::id> {
+	struct hash<ecs::label> {
 		constexpr hash() = default;
-		constexpr std::size_t operator()(const ecs::id& id) const {
-			return id.hash;
+		constexpr std::size_t operator()(const ecs::label& label) const {
+			return label.hash;
 		}
 	};	
 }

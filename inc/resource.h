@@ -14,7 +14,7 @@ namespace ecs {
 		}
 		
 		using erased_ptr = std::unique_ptr<void, void(*)(void*)>;
-		using data_container = std::unordered_map<id, erased_ptr>;
+		using data_container = std::unordered_map<label, erased_ptr>;
 	public:
 		template<typename U> constexpr void drop();
 		template<typename U> constexpr typename res_traits<U>::type& cache();
@@ -26,7 +26,7 @@ namespace ecs {
 	template<typename ... Ts>
 	class res_cache : public res_cache<> {
 	public:
-		template<id key>
+		template<label key>
 		static constexpr std::size_t local_index = []->std::size_t { 
 			if (std::size_t i = -1; ((++i, key == res_traits<Ts>::key) || ...)) return i;
 			return -1;
@@ -85,7 +85,7 @@ constexpr typename ecs::res_traits<U>::type& ecs::res_cache<>::cache() {
 
 template<typename U>
 constexpr const typename ecs::res_traits<U>::type& ecs::res_cache<>::cache() const {
-	static constexpr id res_key = U::key;
+	static constexpr label res_key = U::key;
 	return *static_cast<const typename res_traits<U>::type*>(data.at(res_key).get());
 }
 

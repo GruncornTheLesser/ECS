@@ -31,10 +31,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_library(ecs INTERFACE)
 target_compile_features(ecs INTERFACE cxx_std_23)
 
-include(FetchContent)
-FetchContent_Declare(util GIT_REPOSITORY https://github.com/GruncornTheLesser/tuple_util.git GIT_TAG master)
-FetchContent_MakeAvailable(util)
-
 target_compile_options(ecs INTERFACE
 	"-fdebug-prefix-map=${CMAKE_SOURCE_DIR}/="
 	"-fmacro-prefix-map=${CMAKE_SOURCE_DIR}/="
@@ -43,8 +39,6 @@ target_compile_options(ecs INTERFACE
 target_include_directories(ecs INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/inc>
 )
-
-target_link_libraries(ecs INTERFACE util)
 
 file(GLOB_RECURSE HEADERS "inc/*.h")
 target_sources(ecs INTERFACE ${HEADERS})

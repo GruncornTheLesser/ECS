@@ -48,7 +48,7 @@ namespace ecs {
 				using ref_type = decltype(ref);
 				
 				[&]<std::size_t ... Is>(std::index_sequence<Is...>) {
-					visitor([&]->Ts {
+					visitor([&]->decltype(auto) {
 					 	if constexpr (Is != -1) return get<Is>(ref);
 					 	else return Ts{};
 					 }()...);

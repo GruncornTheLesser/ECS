@@ -7,7 +7,7 @@
 namespace ecs {
 	template<>
 	class pool<entity> final {
-		static constexpr index_t null_index = ~(static_cast<index_t>(-1) << (ECS_INDEX_WIDTH));
+		static constexpr index_t null_index = ~(static_cast<index_t>(-1) << (index_width));
 
 		struct page_t { entity* data; index_t next; index_t head; };
 	public:

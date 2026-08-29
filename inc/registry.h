@@ -1,7 +1,7 @@
 #pragma once
 #include "fwd.h"
 #include "resource.h"
-
+#include <unordered_set>
 // registry.h
 
 namespace ecs {
@@ -22,17 +22,32 @@ namespace ecs {
 		// entity
 		template<typename ... Us>
 		[[nodiscard]] constexpr entity create(Us&& ... components);
-		[[nodiscard]] constexpr bool alive(entity ent) const;
+		
 		constexpr void destroy(entity ent);
-
+		
+		[[nodiscard]] constexpr bool alive(entity ent) const;
+		
 		// component
-		template<typename U, typename ... arg_Us> constexpr U& add(entity ent, arg_Us&&... args);
-		template<typename U, typename ... arg_Us> constexpr U& add(const ecs::pool<U>::const_iterator& it, entity ent, arg_Us&&... args);
-		template<typename U> constexpr void remove(entity ent);
-		template<typename U> constexpr U& get(entity ent);
-		template<typename U> [[nodiscard]] constexpr bool has(entity ent) const;
+		template<typename U, typename ... arg_Us>
+		constexpr U& add(entity ent, arg_Us&&... args);
+		
+		template<typename U, typename ... arg_Us>
+		constexpr U& add(const ecs::pool<U>::const_iterator& it, entity ent, arg_Us&&... args);
+		
+		template<typename U>
+		constexpr void remove(entity ent);
+		
+		template<typename U>
+		constexpr U& get(entity ent);
+		
+		template<typename U>
+		[[nodiscard]] constexpr bool has(entity ent) const;
 		
 		template<typename U> constexpr void visit(U&& visitor);
+
+		// events
+		template<typename U> void trigger(U& event);
+
 	};
 }
 
@@ -81,6 +96,8 @@ template<typename ... Us>
 template<typename ... Ts>
 constexpr void ecs::registry<Ts...>::destroy(entity ent) {
 	return pool<entity>().destroy(ent);
+
+	
 }
 
 template<typename ... Ts>
@@ -121,8 +138,5 @@ template<typename U>
 template<typename ... Ts>
 template<typename U>
 constexpr void ecs::registry<Ts...>::visit(U&& visitor) {
-	using sys_traits = typename ecs::system_traits<U>;
-	
-	typename sys_traits::view_type view(*this);
-	return view.visit(std::forward<U>(visitor));
+	typename ecs::system_traits<U>::view_type(*this).visit(std::forward<U>(visitor));
 }
